@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "oxigraph-mcp": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "/home/nico/wspace/oxigraph-code/rust/Cargo.toml"]
+    }
+  }
+}
