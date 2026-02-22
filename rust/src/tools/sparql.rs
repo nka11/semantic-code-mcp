@@ -91,3 +91,141 @@ pub fn sparql_update(store: &Store, update: &str) -> CallToolResult {
         "SPARQL UPDATE executed successfully.",
     )])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn result_text(result: &CallToolResult) -> &str {
+        match &result.content[0].raw {
+            rmcp::model::RawContent::Text(t) => &t.text,
+            _ => panic!("Expected text content"),
+        }
+    }
+
+    fn is_error(result: &CallToolResult) -> bool {
+        result.is_error == Some(true)
+    }
+
+    fn store_with_data() -> Store {
+        let store = Store::new().unwrap();
+        let ttl = r#"
+            @prefix ex: <http://example.org/> .
+            ex:alice ex:name "Alice" .
+            ex:bob ex:name "Bob" .
+        "#;
+        store
+            .load_from_slice(
+                oxigraph::io::RdfParser::from_format(oxigraph::io::RdfFormat::Turtle),
+                ttl.as_bytes(),
+            )
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn test_select_query() {
+        let store = store_with_data();
+        let result = sparql_query(
+            &store,
+            "SELECT ?s ?name WHERE { ?s <http://example.org/name> ?name } ORDER BY ?name",
+            None,
+        );
+        assert!(!is_error(&result));
+        let text = result_text(&result);
+        let json: serde_json::Value = serde_json::from_str(text).unwrap();
+        let bindings = json["results"]["bindings"].as_array().unwrap();
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings[0]["name"]["value"], "Alice");
+        assert_eq!(bindings[1]["name"]["value"], "Bob");
+    }
+
+    #[test]
+    fn test_ask_query_true() {
+        let store = store_with_data();
+        let result = sparql_query(
+            &store,
+            "ASK { <http://example.org/alice> <http://example.org/name> \"Alice\" }",
+            None,
+        );
+        assert!(!is_error(&result));
+        assert_eq!(result_text(&result), "true");
+    }
+
+    #[test]
+    fn test_ask_query_false() {
+        let store = Store::new().unwrap();
+        let result = sparql_query(
+            &store,
+            "ASK { <http://example.org/alice> <http://example.org/name> \"Alice\" }",
+            None,
+        );
+        assert!(!is_error(&result));
+        assert_eq!(result_text(&result), "false");
+    }
+
+    #[test]
+    fn test_construct_query() {
+        let store = store_with_data();
+        let result = sparql_query(
+            &store,
+            "CONSTRUCT { ?s <http://example.org/knows> ?s } WHERE { ?s <http://example.org/name> \"Alice\" }",
+            None,
+        );
+        assert!(!is_error(&result));
+        let text = result_text(&result);
+        assert!(text.contains("<http://example.org/alice>"));
+        assert!(text.contains("<http://example.org/knows>"));
+    }
+
+    #[test]
+    fn test_invalid_sparql() {
+        let store = Store::new().unwrap();
+        let result = sparql_query(&store, "NOT A VALID QUERY", None);
+        assert!(is_error(&result));
+        assert!(result_text(&result).contains("parse error"));
+    }
+
+    #[test]
+    fn test_sparql_update_insert() {
+        let store = Store::new().unwrap();
+        let result = sparql_update(
+            &store,
+            "INSERT DATA { <http://example.org/alice> <http://example.org/name> \"Alice\" }",
+        );
+        assert!(!is_error(&result));
+        assert!(result_text(&result).contains("successfully"));
+
+        let query_result = sparql_query(
+            &store,
+            "ASK { <http://example.org/alice> <http://example.org/name> \"Alice\" }",
+            None,
+        );
+        assert_eq!(result_text(&query_result), "true");
+    }
+
+    #[test]
+    fn test_sparql_update_delete() {
+        let store = store_with_data();
+        let result = sparql_update(
+            &store,
+            "DELETE DATA { <http://example.org/alice> <http://example.org/name> \"Alice\" }",
+        );
+        assert!(!is_error(&result));
+
+        let query_result = sparql_query(
+            &store,
+            "ASK { <http://example.org/alice> <http://example.org/name> \"Alice\" }",
+            None,
+        );
+        assert_eq!(result_text(&query_result), "false");
+    }
+
+    #[test]
+    fn test_sparql_update_invalid() {
+        let store = Store::new().unwrap();
+        let result = sparql_update(&store, "NOT A VALID UPDATE");
+        assert!(is_error(&result));
+        assert!(result_text(&result).contains("parse error"));
+    }
+}

@@ -137,3 +137,176 @@ pub fn list_graphs(store: &Store) -> CallToolResult {
 
     CallToolResult::success(vec![Content::text(json)])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::sparql::sparql_query;
+
+    fn result_text(result: &CallToolResult) -> &str {
+        match &result.content[0].raw {
+            rmcp::model::RawContent::Text(t) => &t.text,
+            _ => panic!("Expected text content"),
+        }
+    }
+
+    fn is_error(result: &CallToolResult) -> bool {
+        result.is_error == Some(true)
+    }
+
+    #[test]
+    fn test_load_inline_turtle() {
+        let store = Store::new().unwrap();
+        let ttl = r#"
+            @prefix ex: <http://example.org/> .
+            ex:alice ex:name "Alice" .
+            ex:bob ex:name "Bob" .
+        "#;
+        let result = load_rdf(&store, ttl, None, None, None);
+        assert!(!is_error(&result));
+        assert!(result_text(&result).contains("2 triples"));
+    }
+
+    #[test]
+    fn test_load_inline_ntriples() {
+        let store = Store::new().unwrap();
+        let nt = "<http://example.org/alice> <http://example.org/name> \"Alice\" .\n";
+        let result = load_rdf(&store, nt, Some("ntriples"), None, None);
+        assert!(!is_error(&result));
+        assert!(result_text(&result).contains("1 triples"));
+    }
+
+    #[test]
+    fn test_load_inline_with_base_iri() {
+        let store = Store::new().unwrap();
+        let ttl = "<alice> <name> \"Alice\" .";
+        let result = load_rdf(
+            &store,
+            ttl,
+            Some("turtle"),
+            Some("http://example.org/"),
+            None,
+        );
+        assert!(!is_error(&result));
+        assert!(result_text(&result).contains("1 triples"));
+
+        let query_result = sparql_query(
+            &store,
+            "ASK { <http://example.org/alice> <http://example.org/name> \"Alice\" }",
+            None,
+        );
+        assert_eq!(
+            match &query_result.content[0].raw {
+                rmcp::model::RawContent::Text(t) => t.text.as_str(),
+                _ => panic!(),
+            },
+            "true"
+        );
+    }
+
+    #[test]
+    fn test_load_into_named_graph() {
+        let store = Store::new().unwrap();
+        let ttl = r#"
+            @prefix ex: <http://example.org/> .
+            ex:alice ex:name "Alice" .
+        "#;
+        let result = load_rdf(
+            &store,
+            ttl,
+            None,
+            None,
+            Some("http://example.org/graph1"),
+        );
+        assert!(!is_error(&result));
+
+        let query_result = sparql_query(
+            &store,
+            "ASK { GRAPH <http://example.org/graph1> { <http://example.org/alice> <http://example.org/name> \"Alice\" } }",
+            None,
+        );
+        assert_eq!(
+            match &query_result.content[0].raw {
+                rmcp::model::RawContent::Text(t) => t.text.as_str(),
+                _ => panic!(),
+            },
+            "true"
+        );
+    }
+
+    #[test]
+    fn test_load_invalid_format_name() {
+        let store = Store::new().unwrap();
+        let result = load_rdf(&store, "data", Some("invalid"), None, None);
+        assert!(is_error(&result));
+        assert!(result_text(&result).contains("Unknown RDF format"));
+    }
+
+    #[test]
+    fn test_load_invalid_rdf() {
+        let store = Store::new().unwrap();
+        let result = load_rdf(&store, "{{not valid turtle}}", Some("turtle"), None, None);
+        assert!(is_error(&result));
+        assert!(result_text(&result).contains("parse error"));
+    }
+
+    #[test]
+    fn test_load_file_not_found() {
+        let store = Store::new().unwrap();
+        // Path doesn't exist, so is_file is false and input is treated as inline content.
+        // The non-existent path string is not valid Turtle, so we get a parse error.
+        let result = load_rdf(
+            &store,
+            "/nonexistent/path/to/file.ttl",
+            None,
+            None,
+            None,
+        );
+        assert!(is_error(&result));
+        assert!(result_text(&result).contains("parse error"));
+    }
+
+    #[test]
+    fn test_list_graphs_empty() {
+        let store = Store::new().unwrap();
+        let result = list_graphs(&store);
+        assert!(!is_error(&result));
+        let text = result_text(&result);
+        let graphs: Vec<String> = serde_json::from_str(text).unwrap();
+        assert!(graphs.is_empty());
+    }
+
+    #[test]
+    fn test_list_graphs_default_only() {
+        let store = Store::new().unwrap();
+        load_rdf(
+            &store,
+            r#"@prefix ex: <http://example.org/> . ex:a ex:b ex:c ."#,
+            None,
+            None,
+            None,
+        );
+        let result = list_graphs(&store);
+        assert!(!is_error(&result));
+        let graphs: Vec<String> = serde_json::from_str(result_text(&result)).unwrap();
+        assert_eq!(graphs, vec!["default"]);
+    }
+
+    #[test]
+    fn test_list_graphs_named() {
+        let store = Store::new().unwrap();
+        load_rdf(
+            &store,
+            r#"@prefix ex: <http://example.org/> . ex:a ex:b ex:c ."#,
+            None,
+            None,
+            Some("http://example.org/mygraph"),
+        );
+        let result = list_graphs(&store);
+        assert!(!is_error(&result));
+        let graphs: Vec<String> = serde_json::from_str(result_text(&result)).unwrap();
+        assert!(graphs.contains(&"<http://example.org/mygraph>".to_string())
+            || graphs.contains(&"http://example.org/mygraph".to_string()),
+            "Expected graph URI in list, got: {:?}", graphs);
+    }
+}
