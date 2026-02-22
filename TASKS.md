@@ -11,55 +11,79 @@
 - [x] Write TASKS.md with actionable tasks
 - [x] Write SPECIFICATIONS.md with global technical specs
 - [x] Create .gitignore
-- [x] Create directory structure (`ts/`, `python/`, `rust/`)
+- [x] Create directory structure
+- [ ] Remove unused `python/` and `ts/` directories
 
-## M1 — Python Implementation
+## M1 — Core Server and Generic RDF Tools
 
-- [ ] Create `python/pyproject.toml` with dependencies (mcp, pyoxigraph)
-- [ ] Create `python/src/oxigraph_mcp/__init__.py`
-- [ ] Implement `python/src/oxigraph_mcp/server.py`:
-  - [ ] Store initialization (on-disk, configurable path)
+- [ ] Create `rust/Cargo.toml` with dependencies (oxigraph, rmcp, tokio, serde, schemars)
+- [ ] Implement `rust/src/main.rs` — MCP server entry point with stdio transport
+- [ ] Implement `rust/src/store.rs` — Oxigraph store init (on-disk RocksDB, `OXIGRAPH_STORE_PATH`)
+- [ ] Implement `rust/src/tools/sparql.rs`:
   - [ ] `sparql_query` tool
   - [ ] `sparql_update` tool
-  - [ ] `load_rdf` tool (file path and inline content)
+- [ ] Implement `rust/src/tools/rdf.rs`:
+  - [ ] `load_rdf` tool (file path and inline content, format auto-detection)
   - [ ] `list_graphs` tool
-- [ ] Manual test: register as Claude Code MCP server and run queries
+- [ ] Implement `rust/src/tools/mod.rs` — tool registration
+- [ ] Manual test: register as Claude Code MCP server and run SPARQL queries
 
-## M2 — TypeScript Implementation
+## M2 — LanguageLoader Trait and Rust Loader
 
-- [ ] Create `ts/package.json` with dependencies (@modelcontextprotocol/sdk, zod, oxigraph)
-- [ ] Create `ts/tsconfig.json`
-- [ ] Implement `ts/src/index.ts`:
-  - [ ] Store initialization (in-memory)
-  - [ ] `sparql_query` tool
-  - [ ] `sparql_update` tool
-  - [ ] `load_rdf` tool (file path and inline content)
-  - [ ] `list_graphs` tool
-- [ ] Manual test: register as Claude Code MCP server and run queries
+- [ ] Define `LanguageLoader` trait in `rust/src/loaders/mod.rs`
+- [ ] Implement loader registry and language auto-detection
+- [ ] Implement `rust/src/tools/code.rs` — `load_code` generic dispatcher tool
+- [ ] Implement `rust/src/loaders/rust.rs` — Rust loader:
+  - [ ] Cargo.toml parsing (project metadata, dependencies)
+  - [ ] `.rs` file AST extraction via `syn`:
+    - [ ] Module structure and hierarchy
+    - [ ] Functions and methods (name, params, return type, visibility, doc comments)
+    - [ ] Structs and enums
+    - [ ] Traits and impl blocks
+    - [ ] Use/import statements
+  - [ ] Register `load_rust_code` tool
+- [ ] Manual test: load a Rust project and query its structure via SPARQL
 
-## M3 — Rust Implementation
+## M3 — Python Loader
 
-- [ ] Create `rust/Cargo.toml` with dependencies (rmcp, oxigraph, tokio, serde, schemars)
-- [ ] Implement `rust/src/main.rs`:
-  - [ ] Store initialization (on-disk, configurable path)
-  - [ ] `sparql_query` tool
-  - [ ] `sparql_update` tool
-  - [ ] `load_rdf` tool (file path and inline content)
-  - [ ] `list_graphs` tool
-- [ ] Manual test: register as Claude Code MCP server and run queries
+- [ ] Implement `rust/src/loaders/python.rs` — Python loader:
+  - [ ] pyproject.toml / setup.py / requirements.txt parsing for dependencies
+  - [ ] `.py` file AST extraction (Rust-based parser):
+    - [ ] Modules and packages
+    - [ ] Functions and methods (name, params, decorators, docstrings)
+    - [ ] Classes (name, bases, methods)
+    - [ ] Import statements
+    - [ ] Type annotations
+  - [ ] Register `load_python_code` tool
+- [ ] Manual test: load a Python project and query its structure via SPARQL
 
-## M4 — Testing and Documentation
+## M4 — TypeScript Loader
 
-- [ ] Python: add integration tests with pytest
-- [ ] TypeScript: add integration tests with vitest
-- [ ] Rust: add integration tests
+- [ ] Implement `rust/src/loaders/typescript.rs` — TypeScript loader:
+  - [ ] package.json parsing for project metadata and dependencies
+  - [ ] `.ts`/`.tsx`/`.js`/`.jsx` file AST extraction (Rust-based parser):
+    - [ ] Modules and exports
+    - [ ] Functions (name, params, return type, JSDoc)
+    - [ ] Classes and interfaces
+    - [ ] Type aliases
+    - [ ] Import/export statements
+  - [ ] Register `load_ts_code` tool
+- [ ] Manual test: load a TypeScript project and query its structure via SPARQL
+
+## M5 — Testing and Documentation
+
+- [ ] Integration tests for generic RDF tools (sparql_query, sparql_update, load_rdf, list_graphs)
+- [ ] Integration tests for Rust loader
+- [ ] Integration tests for Python loader
+- [ ] Integration tests for TypeScript loader
 - [ ] Write README.md with installation and usage instructions
 - [ ] Add Claude Code MCP configuration examples
 
-## M5 — Advanced Features
+## M6 — Advanced Features
 
 - [ ] `list_namespaces` / `add_namespace` tools for prefix management
 - [ ] `store_stats` tool (triple count, graph count, store size)
 - [ ] `export_rdf` tool (dump store or graph in chosen format)
 - [ ] `drop_graph` tool (remove a named graph)
-- [ ] Bulk loading with progress reporting (Python/Rust only)
+- [ ] Bulk loading with progress reporting
+- [ ] Additional language loaders (Go, Java, C/C++, etc.)
