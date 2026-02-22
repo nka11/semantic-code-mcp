@@ -11,7 +11,7 @@ Expose an [Oxigraph](https://github.com/oxigraph/oxigraph) RDF triplestore as MC
 - Write PLAN.md, TASKS.md, SPECIFICATIONS.md
 - Set up repository structure and .gitignore
 
-### M1 — Core Server and Generic RDF Tools
+### M1 — Core Server and Generic RDF Tools ✅
 Minimal working MCP server with the 4 generic RDF tools.
 
 - Set up Rust project with Cargo.toml (oxigraph, rmcp, tokio, serde, schemars)

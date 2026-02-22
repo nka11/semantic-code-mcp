@@ -14,19 +14,19 @@
 - [x] Create directory structure
 - [ ] Remove unused `python/` and `ts/` directories
 
-## M1 — Core Server and Generic RDF Tools
+## M1 — Core Server and Generic RDF Tools ✅
 
-- [ ] Create `rust/Cargo.toml` with dependencies (oxigraph, rmcp, tokio, serde, schemars)
-- [ ] Implement `rust/src/main.rs` — MCP server entry point with stdio transport
-- [ ] Implement `rust/src/store.rs` — Oxigraph store init (on-disk RocksDB, `OXIGRAPH_STORE_PATH`)
-- [ ] Implement `rust/src/tools/sparql.rs`:
-  - [ ] `sparql_query` tool
-  - [ ] `sparql_update` tool
-- [ ] Implement `rust/src/tools/rdf.rs`:
-  - [ ] `load_rdf` tool (file path and inline content, format auto-detection)
-  - [ ] `list_graphs` tool
-- [ ] Implement `rust/src/tools/mod.rs` — tool registration
-- [ ] Manual test: register as Claude Code MCP server and run SPARQL queries
+- [x] Create `rust/Cargo.toml` with dependencies (oxigraph, rmcp, tokio, serde, schemars)
+- [x] Implement `rust/src/main.rs` — MCP server entry point with stdio transport
+- [x] Implement `rust/src/store.rs` — Oxigraph store init (on-disk RocksDB, `OXIGRAPH_STORE_PATH`)
+- [x] Implement `rust/src/tools/sparql.rs`:
+  - [x] `sparql_query` tool
+  - [x] `sparql_update` tool
+- [x] Implement `rust/src/tools/rdf.rs`:
+  - [x] `load_rdf` tool (file path and inline content, format auto-detection)
+  - [x] `list_graphs` tool
+- [x] Implement `rust/src/tools/mod.rs` — tool registration
+- [x] Manual test: register as Claude Code MCP server and run SPARQL queries
 
 ## M2 — LanguageLoader Trait and Rust Loader
 
