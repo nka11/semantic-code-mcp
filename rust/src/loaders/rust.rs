@@ -1,8 +1,7 @@
 use super::{LanguageLoader, LoadError};
-use oxigraph::model::{GraphName, Literal, NamedNode, Quad, Subject, Term};
+use oxigraph::model::{GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term};
 use quote::ToTokens;
 use std::path::Path;
-use syn::spanned::Spanned;
 
 const CODE_NS: &str = "https://oxigraph.org/code#";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -36,7 +35,7 @@ fn default_graph() -> GraphName {
 
 fn quad(subject: &NamedNode, predicate: &str, object: Term) -> Quad {
     Quad::new(
-        Subject::NamedNode(subject.clone()),
+        NamedOrBlankNode::NamedNode(subject.clone()),
         code_ns(predicate),
         object,
         default_graph(),
@@ -45,7 +44,7 @@ fn quad(subject: &NamedNode, predicate: &str, object: Term) -> Quad {
 
 fn quad_type(subject: &NamedNode, class: &str) -> Quad {
     Quad::new(
-        Subject::NamedNode(subject.clone()),
+        NamedOrBlankNode::NamedNode(subject.clone()),
         rdf_type(),
         Term::NamedNode(code_ns(class)),
         default_graph(),
