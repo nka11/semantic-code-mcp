@@ -12,7 +12,7 @@
 - [x] Write SPECIFICATIONS.md with global technical specs
 - [x] Create .gitignore
 - [x] Create directory structure
-- [ ] Remove unused `python/` and `ts/` directories
+- [x] Remove unused `python/` and `ts/` directories (never created)
 
 ## M1 — Core Server and Generic RDF Tools ✅
 
@@ -28,21 +28,21 @@
 - [x] Implement `rust/src/tools/mod.rs` — tool registration
 - [x] Manual test: register as Claude Code MCP server and run SPARQL queries
 
-## M2 — LanguageLoader Trait and Rust Loader
+## M2 — LanguageLoader Trait and Rust Loader ✅
 
-- [ ] Define `LanguageLoader` trait in `rust/src/loaders/mod.rs`
-- [ ] Implement loader registry and language auto-detection
-- [ ] Implement `rust/src/tools/code.rs` — `load_code` generic dispatcher tool
-- [ ] Implement `rust/src/loaders/rust.rs` — Rust loader:
-  - [ ] Cargo.toml parsing (project metadata, dependencies)
-  - [ ] `.rs` file AST extraction via `syn`:
-    - [ ] Module structure and hierarchy
-    - [ ] Functions and methods (name, params, return type, visibility, doc comments)
-    - [ ] Structs and enums
-    - [ ] Traits and impl blocks
-    - [ ] Use/import statements
-  - [ ] Register `load_rust_code` tool
-- [ ] Manual test: load a Rust project and query its structure via SPARQL
+- [x] Define `LanguageLoader` trait in `rust/src/loaders/mod.rs`
+- [x] Implement loader registry and language auto-detection
+- [x] Implement `rust/src/tools/code.rs` — `load_code` generic dispatcher tool
+- [x] Implement `rust/src/loaders/rust.rs` — Rust loader:
+  - [x] Cargo.toml parsing (project metadata, dependencies)
+  - [x] `.rs` file AST extraction via `syn`:
+    - [x] Module structure and hierarchy
+    - [x] Functions and methods (name, params, return type, visibility, doc comments)
+    - [x] Structs and enums
+    - [x] Traits and impl blocks
+    - [x] Use/import statements
+  - [x] Register `load_rust_code` tool
+- [x] Manual test: load a Rust project and query its structure via SPARQL
 
 ## M3 — Python Loader
 
@@ -72,12 +72,12 @@
 
 ## M5 — Testing and Documentation
 
-- [ ] Integration tests for generic RDF tools (sparql_query, sparql_update, load_rdf, list_graphs)
-- [ ] Integration tests for Rust loader
+- [x] Integration tests for generic RDF tools (sparql_query, sparql_update, load_rdf, list_graphs)
+- [x] Integration tests for Rust loader
 - [ ] Integration tests for Python loader
 - [ ] Integration tests for TypeScript loader
-- [ ] Write README.md with installation and usage instructions
-- [ ] Add Claude Code MCP configuration examples
+- [x] Write README.md with installation and usage instructions
+- [x] Add Claude Code MCP configuration examples
 
 ## M6 — Advanced Features
 

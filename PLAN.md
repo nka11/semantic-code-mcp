@@ -23,7 +23,7 @@ Minimal working MCP server with the 4 generic RDF tools.
 - Implement `list_graphs` tool
 - Manual testing with Claude Code
 
-### M2 — LanguageLoader Trait and Rust Loader
+### M2 — LanguageLoader Trait and Rust Loader ✅
 Plugin system foundation plus the first code loader.
 
 - Define the `LanguageLoader` trait
