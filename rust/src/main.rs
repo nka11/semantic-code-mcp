@@ -42,7 +42,7 @@ struct LoadRdfParams {
 struct LoadCodeParams {
     /// Absolute path to a file or project directory
     path: String,
-    /// Language identifier (rust, python, typescript). Default: auto-detect
+    /// Language identifier. Currently supported: "rust". Default: auto-detect from project markers
     language: Option<String>,
     /// Target named graph URI. Default: code:<language>
     graph: Option<String>,
@@ -124,7 +124,7 @@ impl OxigraphServer {
             .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
     }
 
-    #[tool(description = "Load source code into the RDF store by parsing project metadata and source files. Supports auto-detection of language from project markers (Cargo.toml, package.json, etc.)")]
+    #[tool(description = "Load source code into the RDF store by parsing project metadata and source files. Supports auto-detection of language from project markers (Cargo.toml). Currently supports Rust only. Produces RDF triples using the code: namespace (https://ds-labs.org/code#) with classes: Project, Module, Function, Class, Enum, Trait, Import, Dependency. Default graph: code:<language>.")]
     async fn load_code(
         &self,
         Parameters(params): Parameters<LoadCodeParams>,
@@ -144,7 +144,7 @@ impl OxigraphServer {
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
     }
 
-    #[tool(description = "Load Rust source code into the RDF store. Parses Cargo.toml for project metadata and .rs files for functions, structs, enums, traits, and impl blocks.")]
+    #[tool(description = "Load Rust source code into the RDF store. Parses Cargo.toml for project metadata and .rs files for functions, structs, enums, traits, and impl blocks. Produces RDF triples in the code: namespace (https://ds-labs.org/code#). Classes: Project, Module, Function, Class (structs), Enum, Trait, Import, Dependency. Key properties: name, filePath, relativePath, definedIn, hasFunction, hasMethod, hasField, hasVariant, hasImport, hasDependency, hasModule, implements, visibility, docstring, parameter, returnType. Default graph: code:rust.")]
     async fn load_rust_code(
         &self,
         Parameters(params): Parameters<LoadRustCodeParams>,

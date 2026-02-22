@@ -117,7 +117,7 @@ The code-loading tools parse source code from a project directory and represent 
 
 The code representation builds on existing ontologies, extended as needed:
 
-- **Base namespace**: `https://oxigraph.org/code#` (prefix `code:`)
+- **Base namespace**: `https://ds-labs.org/code#` (prefix `code:`)
 - **Draws from**: [CodeOntology](https://codeontology.org/) and [SEON](https://se-on.org/) where applicable, with extensions for LLM-agent-oriented codebase description.
 
 #### Core Classes
@@ -144,17 +144,21 @@ The code representation builds on existing ontologies, extended as needed:
 | `code:endLine` | any | xsd:integer | End line number |
 | `code:definedIn` | any | `code:Module` | Module containing this definition |
 | `code:hasFunction` | `code:Module`/`code:Class` | `code:Function` | Contains function/method |
-| `code:hasClass` | `code:Module` | `code:Class` | Contains class/struct |
-| `code:hasTrait` | `code:Module` | `code:Trait` | Contains trait/interface |
-| `code:imports` | `code:Module` | `code:Import` | Import statement |
+| `code:hasMethod` | `code:Trait` | xsd:string | Trait method name |
+| `code:hasField` | `code:Class` | xsd:string | Struct field name |
+| `code:hasVariant` | `code:Enum` | xsd:string | Enum variant name |
+| `code:hasModule` | `code:Module` | `code:Module` | Contains submodule (mod declaration) |
+| `code:hasImport` | `code:Module` | `code:Import` | Import statement |
+| `code:hasDependency` | `code:Project` | `code:Dependency` | External dependency |
 | `code:importPath` | `code:Import` | xsd:string | What is being imported |
-| `code:calls` | `code:Function` | `code:Function` | Function call relationship |
+| `code:implements` | `code:Class` | xsd:string | Trait implemented by this type |
+| `code:edition` | `code:Project` | xsd:string | Language edition (e.g., "2021") |
+| `code:calls` | `code:Function` | `code:Function` | Function call relationship (planned, not yet implemented) |
 | `code:parameter` | `code:Function` | xsd:string | Parameter name |
 | `code:returnType` | `code:Function` | xsd:string | Return type annotation |
 | `code:visibility` | any | xsd:string | Visibility modifier (public, private, etc.) |
 | `code:docstring` | any | xsd:string | Documentation string |
-| `code:dependsOn` | `code:Project` | `code:Dependency` | External dependency |
-| `code:version` | `code:Dependency` | xsd:string | Dependency version |
+| `code:version` | `code:Project`/`code:Dependency` | xsd:string | Version string |
 | `code:language` | `code:Module` | xsd:string | Programming language |
 
 ### 4.3 `load_code` (Generic Dispatcher)
@@ -165,7 +169,7 @@ Load source code from a project directory into the RDF store, auto-detecting or 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Path to a file or project directory |
-| `language` | string | no | Language hint: `rust`, `python`, `typescript`. Default: auto-detect |
+| `language` | string | no | Language hint. Currently supported: `rust`. Default: auto-detect from project markers |
 | `graph` | string | no | Target named graph URI. Default: `code:<language>` |
 
 **Behavior:**

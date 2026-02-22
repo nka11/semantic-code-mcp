@@ -99,7 +99,7 @@ pub fn load_code(
     // Build summary
     let mut summary = format!(
         "Loaded {files_loaded} file(s), {quad_count} triples into graph '{}'.",
-        graph.unwrap_or("code:rust")
+        graph.unwrap_or(&format!("code:{lang}"))
     );
 
     if !errors.is_empty() {
@@ -129,7 +129,7 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    const G: &str = "FROM <https://oxigraph.org/code#rust>";
+    const G: &str = "FROM <https://ds-labs.org/code#rust>";
 
     fn result_text(result: &CallToolResult) -> &str {
         match &result.content[0].raw {
@@ -151,7 +151,7 @@ mod tests {
     /// Helper: query from the code:rust named graph
     fn q(store: &Store, select: &str, body: &str) -> String {
         let sparql = format!(
-            "PREFIX code: <https://oxigraph.org/code#>\n{select} {G} WHERE {{ {body} }}"
+            "PREFIX code: <https://ds-labs.org/code#>\n{select} {G} WHERE {{ {body} }}"
         );
         query_results(store, &sparql)
     }
@@ -380,7 +380,7 @@ mod utils;
 
         let json = query_results(
             &store,
-            r#"PREFIX code: <https://oxigraph.org/code#>
+            r#"PREFIX code: <https://ds-labs.org/code#>
             SELECT ?name FROM <http://example.org/my-graph> WHERE {
                 ?f a code:Function ; code:name ?name .
             }"#,

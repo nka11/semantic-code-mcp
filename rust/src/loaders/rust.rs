@@ -3,15 +3,36 @@ use oxigraph::model::{GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Ter
 use quote::ToTokens;
 use std::path::Path;
 
-const CODE_NS: &str = "https://oxigraph.org/code#";
+const CODE_NS: &str = "https://ds-labs.org/code#";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 
 pub struct RustLoader;
 
 // --- RDF helper functions ---
 
+/// Percent-encode characters that are invalid in IRIs.
+fn sanitize_iri_local(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '<' => out.push_str("%3C"),
+            '>' => out.push_str("%3E"),
+            '{' => out.push_str("%7B"),
+            '}' => out.push_str("%7D"),
+            ' ' => out.push_str("%20"),
+            '"' => out.push_str("%22"),
+            '|' => out.push_str("%7C"),
+            '\\' => out.push_str("%5C"),
+            '^' => out.push_str("%5E"),
+            '`' => out.push_str("%60"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 fn code_ns(local: &str) -> NamedNode {
-    NamedNode::new(format!("{CODE_NS}{local}")).unwrap()
+    NamedNode::new(format!("{CODE_NS}{}", sanitize_iri_local(local))).unwrap()
 }
 
 fn rdf_type() -> NamedNode {

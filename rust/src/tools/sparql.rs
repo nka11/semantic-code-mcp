@@ -11,12 +11,23 @@ fn tool_error(msg: String) -> CallToolResult {
 pub fn sparql_query(
     store: &Store,
     query: &str,
-    _default_graph: Option<&str>,
+    default_graph: Option<&str>,
 ) -> CallToolResult {
-    let prepared = match SparqlEvaluator::new().parse_query(query) {
+    let mut prepared = match SparqlEvaluator::new().parse_query(query) {
         Ok(p) => p,
         Err(e) => return tool_error(format!("SPARQL parse error: {e}")),
     };
+
+    if let Some(graph_uri) = default_graph {
+        match oxigraph::model::NamedNode::new(graph_uri) {
+            Ok(nn) => {
+                prepared
+                    .dataset_mut()
+                    .set_default_graph(vec![nn.into()]);
+            }
+            Err(e) => return tool_error(format!("Invalid default_graph URI: {e}")),
+        }
+    }
 
     let results = match prepared.on_store(store).execute() {
         Ok(r) => r,
@@ -176,6 +187,35 @@ mod tests {
         let text = result_text(&result);
         assert!(text.contains("<http://example.org/alice>"));
         assert!(text.contains("<http://example.org/knows>"));
+    }
+
+    #[test]
+    fn test_query_with_default_graph() {
+        let store = Store::new().unwrap();
+        // Insert data into a named graph
+        sparql_update(
+            &store,
+            "INSERT DATA { GRAPH <http://example.org/g1> { <http://example.org/alice> <http://example.org/name> \"Alice\" } }",
+        );
+        // Without default_graph, the named graph data is not visible
+        let result = sparql_query(
+            &store,
+            "SELECT ?name WHERE { <http://example.org/alice> <http://example.org/name> ?name }",
+            None,
+        );
+        assert!(!is_error(&result));
+        let text = result_text(&result);
+        assert!(!text.contains("Alice"), "Should not find Alice in default graph: {text}");
+
+        // With default_graph set, the named graph becomes the default
+        let result = sparql_query(
+            &store,
+            "SELECT ?name WHERE { <http://example.org/alice> <http://example.org/name> ?name }",
+            Some("http://example.org/g1"),
+        );
+        assert!(!is_error(&result));
+        let text = result_text(&result);
+        assert!(text.contains("Alice"), "Should find Alice with default_graph set: {text}");
     }
 
     #[test]
