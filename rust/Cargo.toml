@@ -6,6 +6,7 @@ rust-version = "1.75"
 
 [dependencies]
 oxigraph = "0.5"
+sparesults = "0.3"
 rmcp = { version = "0.16", features = ["server", "transport-io", "macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

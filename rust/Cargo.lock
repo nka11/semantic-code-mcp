@@ -603,6 +603,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sparesults",
  "tokio",
  "tracing",
  "tracing-subscriber",

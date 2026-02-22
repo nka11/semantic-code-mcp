@@ -1,17 +1,13 @@
 use oxigraph::io::{RdfFormat, RdfParser};
 use oxigraph::model::{GraphNameRef, NamedNode};
 use oxigraph::store::Store;
-use rmcp::model::CallToolResult;
+use rmcp::model::{CallToolResult, Content};
 use std::fs;
 use std::io::BufReader;
 use std::path::Path;
 
 fn tool_error(msg: String) -> CallToolResult {
-    CallToolResult {
-        content: vec![rmcp::model::Content::text(msg)],
-        is_error: Some(true),
-        ..Default::default()
-    }
+    CallToolResult::error(vec![Content::text(msg)])
 }
 
 fn resolve_format(fmt: &str) -> Option<RdfFormat> {
@@ -111,7 +107,7 @@ pub fn load_rdf(
     };
     let loaded = count_after.saturating_sub(count_before);
 
-    CallToolResult::success(vec![rmcp::model::Content::text(format!(
+    CallToolResult::success(vec![Content::text(format!(
         "Successfully loaded {loaded} triples/quads."
     ))])
 }
@@ -139,5 +135,5 @@ pub fn list_graphs(store: &Store) -> CallToolResult {
         Err(e) => return tool_error(format!("JSON serialization error: {e}")),
     };
 
-    CallToolResult::success(vec![rmcp::model::Content::text(json)])
+    CallToolResult::success(vec![Content::text(json)])
 }

@@ -1,15 +1,11 @@
 use oxigraph::io::{RdfFormat, RdfSerializer};
 use oxigraph::sparql::{QueryResults, SparqlEvaluator};
 use oxigraph::store::Store;
-use rmcp::model::CallToolResult;
+use rmcp::model::{CallToolResult, Content};
 use sparesults::{QueryResultsFormat, QueryResultsSerializer};
 
 fn tool_error(msg: String) -> CallToolResult {
-    CallToolResult {
-        content: vec![rmcp::model::Content::text(msg)],
-        is_error: Some(true),
-        ..Default::default()
-    }
+    CallToolResult::error(vec![Content::text(msg)])
 }
 
 pub fn sparql_query(
@@ -53,7 +49,7 @@ pub fn sparql_query(
                 return tool_error(format!("Serialization error: {e}"));
             }
             let json = String::from_utf8_lossy(&buffer).into_owned();
-            CallToolResult::success(vec![rmcp::model::Content::text(json)])
+            CallToolResult::success(vec![Content::text(json)])
         }
         QueryResults::Graph(triples) => {
             let mut buffer = Vec::new();
@@ -73,11 +69,11 @@ pub fn sparql_query(
                 return tool_error(format!("Serialization error: {e}"));
             }
             let nt = String::from_utf8_lossy(&buffer).into_owned();
-            CallToolResult::success(vec![rmcp::model::Content::text(nt)])
+            CallToolResult::success(vec![Content::text(nt)])
         }
-        QueryResults::Boolean(value) => CallToolResult::success(vec![
-            rmcp::model::Content::text(if value { "true" } else { "false" }),
-        ]),
+        QueryResults::Boolean(value) => CallToolResult::success(vec![Content::text(
+            if value { "true" } else { "false" },
+        )]),
     }
 }
 
@@ -91,7 +87,7 @@ pub fn sparql_update(store: &Store, update: &str) -> CallToolResult {
         return tool_error(format!("Update execution error: {e}"));
     }
 
-    CallToolResult::success(vec![rmcp::model::Content::text(
+    CallToolResult::success(vec![Content::text(
         "SPARQL UPDATE executed successfully.",
     )])
 }
