@@ -621,6 +621,8 @@ name = "oxigraph-mcp"
 version = "0.1.0"
 dependencies = [
  "oxigraph",
+ "proc-macro2",
+ "quote",
  "rmcp",
  "schemars",
  "serde",
