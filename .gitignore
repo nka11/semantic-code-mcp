@@ -1,0 +1,29 @@
+# Oxigraph data
+oxigraph_data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# TypeScript / Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Rust
+target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
