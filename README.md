@@ -2,6 +2,38 @@
 
 An MCP (Model Context Protocol) server that exposes an [Oxigraph](https://oxigraph.org) RDF triplestore to Claude Code. Load source code into an RDF knowledge graph and query it with SPARQL.
 
+## Installation
+
+### Quick Install (Linux/macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nka11/semantic-code-mcp/main/install.sh | bash
+```
+
+### Install a specific version
+
+```bash
+VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/nka11/semantic-code-mcp/main/install.sh | bash
+```
+
+Then configure in `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "semantic-code-mcp": {
+      "command": "~/.local/bin/semantic-code-mcp"
+    }
+  }
+}
+```
+
+For Windows, download the `.zip` from the [releases page](https://github.com/nka11/semantic-code-mcp/releases) and add the binary to your PATH.
+
+### Build from source
+
+See the [Build](#build) section below.
+
 ## Features
 
 **Generic RDF tools:**
@@ -30,20 +62,7 @@ The binary is at `rust/target/release/oxigraph-mcp`.
 
 ## Configuration
 
-Configure as an MCP server in your Claude Code settings (`~/.claude.json`):
-
-```json
-{
-  "mcpServers": {
-    "oxigraph": {
-      "command": "/path/to/oxigraph-mcp",
-      "env": {
-        "OXIGRAPH_STORE_PATH": "/path/to/store"
-      }
-    }
-  }
-}
-```
+See [Installation](#installation) for `~/.claude.json` setup. If building from source, replace the command path with your built binary location.
 
 | Environment Variable | Default | Description |
 |---|---|---|
