@@ -36,7 +36,7 @@ TypeScriptLoader
     load_project_metadata(project_root) -> Vec<Quad>
 ```
 
-Default named graph: `code:typescript`
+All triples written to the default graph.
 
 ## 3. RDF Entities to Extract
 

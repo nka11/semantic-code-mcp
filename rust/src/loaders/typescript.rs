@@ -9,7 +9,7 @@ use std::path::Path;
 pub struct TypeScriptLoader;
 
 fn default_graph() -> GraphName {
-    GraphName::NamedNode(code_ns("typescript"))
+    GraphName::DefaultGraph
 }
 
 fn q(subject: &NamedNode, predicate: &str, object: Term) -> Quad {

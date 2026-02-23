@@ -6,7 +6,7 @@ use std::path::Path;
 pub struct RustLoader;
 
 fn default_graph() -> GraphName {
-    GraphName::NamedNode(code_ns("rust"))
+    GraphName::DefaultGraph
 }
 
 fn q(subject: &NamedNode, predicate: &str, object: Term) -> Quad {
