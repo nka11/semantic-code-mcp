@@ -120,6 +120,10 @@ pub fn load_ts_code(store: &Store, registry: &LoaderRegistry, path: &str) -> Cal
     load_code(store, registry, path, Some("typescript"))
 }
 
+pub fn load_python_code(store: &Store, registry: &LoaderRegistry, path: &str) -> CallToolResult {
+    load_code(store, registry, path, Some("python"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,5 +933,548 @@ export class User extends Base implements Serializable, Loggable {
             r#"?c a code:Class ; code:name "User" ; code:extends ?parent ."#,
         );
         assert!(json.contains("Base"), "extends Base not found: {json}");
+    }
+
+    // --- Python loader tests ---
+
+    #[test]
+    fn test_pyproject_toml_parsing() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"
+[project]
+name = "my-python-app"
+version = "1.2.3"
+description = "A test Python project"
+dependencies = [
+    "requests>=2.28.0",
+    "flask",
+    "sqlalchemy[asyncio]>=2.0",
+]
+"#,
+        )
+        .unwrap();
+        fs::write(dir.path().join("main.py"), "def main(): pass").unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_python_code(&store, &registry, dir.path().to_str().unwrap());
+        assert!(
+            !is_error(&result),
+            "load_python_code failed: {}",
+            result_text(&result)
+        );
+
+        // Project metadata
+        let json = q(
+            &store,
+            "SELECT ?name ?version",
+            "?p a code:Project ; code:name ?name ; code:version ?version .",
+        );
+        assert!(
+            json.contains("my-python-app"),
+            "Project name not found: {json}"
+        );
+        assert!(json.contains("1.2.3"), "Version not found: {json}");
+
+        // Dependencies
+        let json = q(
+            &store,
+            "SELECT ?name",
+            "?d a code:Dependency ; code:name ?name .",
+        );
+        assert!(json.contains("requests"), "requests dep not found: {json}");
+        assert!(json.contains("flask"), "flask dep not found: {json}");
+        assert!(
+            json.contains("sqlalchemy"),
+            "sqlalchemy dep not found: {json}"
+        );
+
+        // Project → hasModule link
+        let json = q(
+            &store,
+            "SELECT ?path",
+            r#"?p a code:Project ; code:name "my-python-app" ; code:hasModule ?mod . ?mod code:relativePath ?path ."#,
+        );
+        assert!(
+            json.contains("main.py"),
+            "hasModule link to main.py not found: {json}"
+        );
+    }
+
+    #[test]
+    fn test_py_ast_extraction() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"[project]
+name = "ast-test"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::write(
+            dir.path().join("src/app.py"),
+            r#"
+"""Module docstring."""
+
+import os
+from typing import Optional, List
+
+def greet(name: str) -> str:
+    """Greet someone."""
+    return f"Hello, {name}!"
+
+def _private_helper(x: int) -> int:
+    return x * 2
+
+class Config:
+    """Configuration class."""
+    host: str
+    port: int
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+
+    def get_url(self) -> str:
+        return f"{self.host}:{self.port}"
+
+class Status:
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_python_code(&store, &registry, dir.path().to_str().unwrap());
+        assert!(!is_error(&result), "Failed: {}", result_text(&result));
+
+        // Function
+        let json = q(
+            &store,
+            "SELECT ?name ?vis",
+            r#"?f a code:Function ; code:name "greet" ; code:visibility ?vis ; code:name ?name ."#,
+        );
+        assert!(json.contains("greet"), "Function 'greet' not found: {json}");
+        assert!(json.contains("public"), "Visibility not found: {json}");
+
+        // Private function
+        let json = q(
+            &store,
+            "SELECT ?vis",
+            r#"?f a code:Function ; code:name "_private_helper" ; code:visibility ?vis ."#,
+        );
+        assert!(
+            json.contains("private"),
+            "Private visibility not found: {json}"
+        );
+
+        // Function parameters
+        let json = q(
+            &store,
+            "SELECT ?param",
+            r#"?f a code:Function ; code:name "greet" ; code:parameter ?param ."#,
+        );
+        assert!(json.contains("name"), "Parameter 'name' not found: {json}");
+
+        // Return type
+        let json = q(
+            &store,
+            "SELECT ?ret",
+            r#"?f a code:Function ; code:name "greet" ; code:returnType ?ret ."#,
+        );
+        assert!(json.contains("str"), "Return type not found: {json}");
+
+        // Docstring
+        let json = q(
+            &store,
+            "SELECT ?doc",
+            r#"?f a code:Function ; code:name "greet" ; code:docstring ?doc ."#,
+        );
+        assert!(
+            json.contains("Greet someone"),
+            "Docstring not found: {json}"
+        );
+
+        // Class
+        let json = q(
+            &store,
+            "SELECT ?name",
+            "?c a code:Class ; code:name ?name .",
+        );
+        assert!(json.contains("Config"), "Class 'Config' not found: {json}");
+
+        // Class docstring
+        let json = q(
+            &store,
+            "SELECT ?doc",
+            r#"?c a code:Class ; code:name "Config" ; code:docstring ?doc ."#,
+        );
+        assert!(
+            json.contains("Configuration class"),
+            "Class docstring not found: {json}"
+        );
+
+        // Class methods (skip __init__, check get_url)
+        let json = q(
+            &store,
+            "SELECT ?method",
+            r#"?c a code:Class ; code:name "Config" ; code:hasFunction ?f . ?f code:name ?method ."#,
+        );
+        assert!(
+            json.contains("get_url"),
+            "Method 'get_url' not found: {json}"
+        );
+        assert!(
+            json.contains("__init__"),
+            "Method '__init__' not found: {json}"
+        );
+
+        // Import
+        let json = q(
+            &store,
+            "SELECT ?path",
+            "?i a code:Import ; code:importPath ?path .",
+        );
+        assert!(json.contains("os"), "Import 'os' not found: {json}");
+        assert!(json.contains("typing"), "Import 'typing' not found: {json}");
+
+        // Named import symbols
+        let json = q(
+            &store,
+            "SELECT ?sym",
+            r#"?i a code:Import ; code:importPath "typing" ; code:importedSymbol ?sym ."#,
+        );
+        assert!(
+            json.contains("Optional"),
+            "Import symbol 'Optional' not found: {json}"
+        );
+        assert!(
+            json.contains("List"),
+            "Import symbol 'List' not found: {json}"
+        );
+    }
+
+    #[test]
+    fn test_py_class_fields() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("models.py"),
+            r#"
+class User:
+    name: str
+    age: int
+
+    def __init__(self, name: str, age: int, email: str):
+        self.name = name
+        self.age = age
+        self.email = email
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_python_code(
+            &store,
+            &registry,
+            dir.path().join("models.py").to_str().unwrap(),
+        );
+        assert!(!is_error(&result), "Failed: {}", result_text(&result));
+
+        // Class-level annotated fields
+        let json = q(
+            &store,
+            "SELECT ?field ?ftype",
+            r#"?c a code:Class ; code:name "User" ; code:hasField ?f . ?f a code:Field ; code:name ?field ; code:fieldType ?ftype ."#,
+        );
+        assert!(json.contains("name"), "Field 'name' not found: {json}");
+        assert!(json.contains("age"), "Field 'age' not found: {json}");
+        assert!(json.contains("str"), "Field type 'str' not found: {json}");
+        assert!(json.contains("int"), "Field type 'int' not found: {json}");
+
+        // __init__ self-assignment fields
+        let json = q(
+            &store,
+            "SELECT ?field",
+            r#"?c a code:Class ; code:name "User" ; code:hasField ?f . ?f code:name ?field ."#,
+        );
+        assert!(
+            json.contains("email"),
+            "Init field 'email' not found: {json}"
+        );
+
+        // Method parameters should NOT include 'self'
+        let json = q(
+            &store,
+            "SELECT ?param",
+            r#"?f a code:Function ; code:name "__init__" ; code:parameter ?param ."#,
+        );
+        assert!(
+            !json.contains("self"),
+            "'self' should be excluded from params: {json}"
+        );
+        assert!(json.contains("name"), "param 'name' not found: {json}");
+    }
+
+    #[test]
+    fn test_py_decorators() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("decorators.py"),
+            r#"
+def my_decorator(func):
+    return func
+
+@my_decorator
+def decorated_func():
+    pass
+
+class MyClass:
+    @staticmethod
+    def static_method():
+        pass
+
+    @classmethod
+    def class_method(cls):
+        pass
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_python_code(
+            &store,
+            &registry,
+            dir.path().join("decorators.py").to_str().unwrap(),
+        );
+        assert!(!is_error(&result), "Failed: {}", result_text(&result));
+
+        // Function decorator
+        let json = q(
+            &store,
+            "SELECT ?dec",
+            r#"?f a code:Function ; code:name "decorated_func" ; code:decorator ?dec ."#,
+        );
+        assert!(
+            json.contains("my_decorator"),
+            "Decorator 'my_decorator' not found: {json}"
+        );
+
+        // Static method decorator
+        let json = q(
+            &store,
+            "SELECT ?dec",
+            r#"?f a code:Function ; code:name "static_method" ; code:decorator ?dec ."#,
+        );
+        assert!(
+            json.contains("staticmethod"),
+            "Decorator 'staticmethod' not found: {json}"
+        );
+    }
+
+    #[test]
+    fn test_py_type_annotations() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("typed.py"),
+            r#"
+from typing import Optional, Dict
+
+def process(data: Dict[str, int], limit: Optional[int] = None) -> bool:
+    return True
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_python_code(
+            &store,
+            &registry,
+            dir.path().join("typed.py").to_str().unwrap(),
+        );
+        assert!(!is_error(&result), "Failed: {}", result_text(&result));
+
+        // Return type
+        let json = q(
+            &store,
+            "SELECT ?ret",
+            r#"?f a code:Function ; code:name "process" ; code:returnType ?ret ."#,
+        );
+        assert!(
+            json.contains("bool"),
+            "Return type 'bool' not found: {json}"
+        );
+
+        // Parameters
+        let json = q(
+            &store,
+            "SELECT ?param",
+            r#"?f a code:Function ; code:name "process" ; code:parameter ?param ."#,
+        );
+        assert!(json.contains("data"), "Parameter 'data' not found: {json}");
+        assert!(
+            json.contains("limit"),
+            "Parameter 'limit' not found: {json}"
+        );
+    }
+
+    #[test]
+    fn test_py_auto_detection() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"[project]
+name = "detect-py"
+version = "1.0.0"
+"#,
+        )
+        .unwrap();
+        fs::write(dir.path().join("main.py"), "def foo(): pass").unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        assert!(
+            !is_error(&result),
+            "Auto-detect failed: {}",
+            result_text(&result)
+        );
+        assert!(
+            result_text(&result).contains("(python)"),
+            "Should detect python: {}",
+            result_text(&result)
+        );
+    }
+
+    #[test]
+    fn test_py_ignore_patterns() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            r#"[project]
+name = "ignore-test"
+version = "1.0.0"
+"#,
+        )
+        .unwrap();
+        fs::write(dir.path().join("app.py"), "def app(): pass").unwrap();
+
+        // __pycache__ should be ignored
+        fs::create_dir_all(dir.path().join("__pycache__")).unwrap();
+        fs::write(
+            dir.path().join("__pycache__/app.cpython-312.py"),
+            "# cached bytecode",
+        )
+        .unwrap();
+
+        // .venv should be ignored
+        fs::create_dir_all(dir.path().join(".venv/lib")).unwrap();
+        fs::write(dir.path().join(".venv/lib/site.py"), "# venv file").unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_python_code(&store, &registry, dir.path().to_str().unwrap());
+        let text = result_text(&result);
+        assert!(!is_error(&result), "Failed: {text}");
+        assert!(
+            text.contains("1 file(s)"),
+            "Expected 1 file loaded (__pycache__ and .venv excluded): {text}"
+        );
+    }
+
+    #[test]
+    fn test_py_class_inheritance() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("inheritance.py"),
+            r#"
+class Base:
+    pass
+
+class Mixin:
+    pass
+
+class Child(Base, Mixin):
+    pass
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_python_code(
+            &store,
+            &registry,
+            dir.path().join("inheritance.py").to_str().unwrap(),
+        );
+        assert!(!is_error(&result), "Failed: {}", result_text(&result));
+
+        let json = q(
+            &store,
+            "SELECT ?base",
+            r#"?c a code:Class ; code:name "Child" ; code:extends ?base ."#,
+        );
+        assert!(json.contains("Base"), "extends Base not found: {json}");
+        assert!(json.contains("Mixin"), "extends Mixin not found: {json}");
+    }
+
+    #[test]
+    fn test_py_async_functions() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("async_app.py"),
+            r#"
+async def fetch_data(url: str) -> dict:
+    """Fetch data from URL."""
+    pass
+
+async def process(data: list) -> None:
+    pass
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_python_code(
+            &store,
+            &registry,
+            dir.path().join("async_app.py").to_str().unwrap(),
+        );
+        assert!(!is_error(&result), "Failed: {}", result_text(&result));
+
+        // Async function exists
+        let json = q(
+            &store,
+            "SELECT ?name",
+            r#"?f a code:Function ; code:name ?name ; code:async "true" ."#,
+        );
+        assert!(
+            json.contains("fetch_data"),
+            "Async function 'fetch_data' not found: {json}"
+        );
+        assert!(
+            json.contains("process"),
+            "Async function 'process' not found: {json}"
+        );
+
+        // Docstring on async function
+        let json = q(
+            &store,
+            "SELECT ?doc",
+            r#"?f a code:Function ; code:name "fetch_data" ; code:docstring ?doc ."#,
+        );
+        assert!(
+            json.contains("Fetch data from URL"),
+            "Async docstring not found: {json}"
+        );
     }
 }

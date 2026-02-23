@@ -33,6 +33,7 @@ time = { version = "0.3", features = ["formatting"] }
 agent_orchestrator = { path = "crates/agent_orchestrator" }
 rag_pipeline = { path = "crates/rag_pipeline" }
 vector_store = { path = "crates/vector_store" }
+rustpython-parser = { version = "0.4", features = ["all-nodes-with-ranges"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -68,6 +68,12 @@ struct LoadTsCodeParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct LoadPythonCodeParams {
+    /// Absolute path to a Python file or project directory
+    path: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct LoadGitHistoryParams {
     /// Path to a git repository (must contain a .git directory)
     path: String,
@@ -265,6 +271,22 @@ impl OxigraphServer {
         let registry = self.registry.clone();
         tokio::task::spawn_blocking(move || {
             tools::code::load_ts_code(&store, &registry, &params.path)
+        })
+        .await
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
+        description = "Load Python source code into the RDF store. Parses pyproject.toml for project metadata and .py files for functions, classes, imports, decorators, and type annotations. Produces RDF triples in the code: namespace (https://ds-labs.org/code#). All triples stored in the default graph. After loading, use sparql_query to query. Classes: Project (name, version, language, hasDependency, hasModule), Module (name, filePath, relativePath, hasFunction, hasImport), Function (name, visibility, parameter, returnType, startLine, endLine, definedIn, docstring, decorator, async), Class (name, visibility, hasField, hasFunction, extends, startLine, endLine, definedIn, docstring, decorator), Field (name, fieldType, startLine), Import (importPath, importedSymbol), Dependency (name, version). Entity URIs use relative paths: code:src/main.py, code:src/main.py/MyClass, code:src/main.py/MyClass/my_method."
+    )]
+    async fn load_python_code(
+        &self,
+        Parameters(params): Parameters<LoadPythonCodeParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.store.clone();
+        let registry = self.registry.clone();
+        tokio::task::spawn_blocking(move || {
+            tools::code::load_python_code(&store, &registry, &params.path)
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
