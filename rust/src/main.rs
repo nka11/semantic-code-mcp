@@ -60,6 +60,16 @@ struct LoadTsCodeParams {
     path: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct LoadGitHistoryParams {
+    /// Path to a git repository (must contain a .git directory)
+    path: String,
+    /// Maximum number of commits to load. Default: 500
+    max_commits: Option<u32>,
+    /// Branch or ref to walk. Default: HEAD
+    branch: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct OxigraphServer {
     store: Arc<Store>,
@@ -175,6 +185,26 @@ impl OxigraphServer {
         let registry = self.registry.clone();
         tokio::task::spawn_blocking(move || {
             tools::code::load_ts_code(&store, &registry, &params.path)
+        })
+        .await
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
+        description = "Load git commit history into the RDF store from a git repository. Walks the commit graph and extracts commit metadata (hash, author, committer, date, message, parents) and per-commit file changes (added, modified, deleted, renamed). Produces RDF triples in the code: namespace (https://ds-labs.org/code#). All triples stored in the default graph. After loading, use sparql_query to query. Classes: Commit (commitHash, shortHash, authorName, authorEmail, committerName, committerEmail, commitDate, message, parentCommit, hasChange), FileChange (changeType, filePath, oldFilePath, affectsModule). Commit URIs: code:commit/<short_hash>. FileChange URIs: code:commit/<short_hash>/<relative_path>. When code has been loaded first, FileChanges are automatically linked to Module nodes via affectsModule, and the Project node is linked to commits via hasCommit."
+    )]
+    async fn load_git_history(
+        &self,
+        Parameters(params): Parameters<LoadGitHistoryParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.store.clone();
+        tokio::task::spawn_blocking(move || {
+            tools::git::load_git_history(
+                &store,
+                &params.path,
+                params.max_commits,
+                params.branch.as_deref(),
+            )
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
