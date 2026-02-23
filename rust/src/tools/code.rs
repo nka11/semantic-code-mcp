@@ -130,6 +130,15 @@ pub fn load_rust_code(
     load_code(store, registry, path, Some("rust"), graph)
 }
 
+pub fn load_ts_code(
+    store: &Store,
+    registry: &LoaderRegistry,
+    path: &str,
+    graph: Option<&str>,
+) -> CallToolResult {
+    load_code(store, registry, path, Some("typescript"), graph)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
