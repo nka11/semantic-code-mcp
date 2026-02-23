@@ -62,6 +62,10 @@ rust/src/
 | `OXIGRAPH_STORE_PATH` | `./oxigraph_data` | RocksDB store path |
 | `RUST_LOG` | (unset) | tracing-subscriber log level filter |
 
+## Pre-Commit Checklist
+
+Always run `cargo fmt`, `cargo clippy -- -D warnings`, and `cargo test` before committing. Fix any issues before creating the commit.
+
 ## Specifications
 
 See `SPECIFICATIONS.md` for the full RDF ontology (classes, properties), tool interface definitions, and milestone plan. The spec is the source of truth for how code entities map to RDF triples.
