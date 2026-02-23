@@ -44,7 +44,7 @@ rust/src/
 - `main.rs` tool handlers wrap these in `tokio::task::spawn_blocking`.
 - `LanguageLoader` trait returns `Vec<Quad>` (graph name baked in). `LoaderRegistry` maps language IDs to loaders.
 - Language auto-detection: marker files for dirs (`Cargo.toml`, `package.json`, etc.), file extensions for single files.
-- RDF namespace: `https://ds-labs.org/code#` (`CODE_NS` in loaders). Default named graph for Rust: `code:rust`.
+- RDF namespace: `https://ds-labs.org/code#` (`CODE_NS` in loaders). All code and git loaders write to the default graph.
 
 **Key crates:** oxigraph 0.5.x (store + SPARQL), rmcp 0.16.x (MCP SDK), syn 2 (Rust AST parsing), sparesults 0.3 (SPARQL result serialization), schemars 1 (JSON Schema for tool params).
 

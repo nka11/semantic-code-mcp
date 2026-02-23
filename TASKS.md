@@ -88,7 +88,7 @@
   - [ ] Extract commit metadata (hash, author, committer, date, message, parents)
   - [ ] Extract per-commit file changes via diff-tree (added, modified, deleted, renamed)
   - [ ] Generate `code:Commit` and `code:FileChange` RDF triples
-  - [ ] Link `code:FileChange` to `code:Module` via `code:affectsModule` (cross-graph linking)
+  - [ ] Link `code:FileChange` to `code:Module` via `code:affectsModule` (same-graph join)
   - [ ] Respect `max_commits` limit
 - [ ] Implement `rust/src/tools/git.rs` — `load_git_history` tool:
   - [ ] Tool parameter schema (path, graph, max_commits, branch)
@@ -99,7 +99,7 @@
   - [ ] Test commit metadata extraction with a temp git repo
   - [ ] Test file change detection (add, modify, delete, rename)
   - [ ] Test max_commits limiting
-  - [ ] Test cross-graph module linking
+  - [ ] Test module linking via `code:affectsModule`
 - [ ] Manual test: load git history and query commits/changes via SPARQL
 
 ## M7 — Advanced Features

@@ -116,6 +116,8 @@ List all named graphs in the store.
 
 The code-loading tools parse source code from a project directory and represent it as RDF triples in the Oxigraph store. This enables an LLM coding agent to query structural and semantic information about a codebase using SPARQL — modules, functions, classes, imports, dependencies, call relationships, and file metadata.
 
+**Single graph model:** All loaders (code and git) write triples into the **default graph**. This avoids the complexity of cross-graph queries and allows simple SPARQL patterns to join code structure with git history. Entities from different languages are distinguished by the `code:language` property on `code:Module` and `code:Project` nodes. The generic `load_rdf` tool retains its optional `graph` parameter for user-managed RDF data.
+
 ### 4.2 RDF Ontology for Code Representation
 
 The code representation builds on existing ontologies, extended as needed:
@@ -199,7 +201,6 @@ Load source code from a project directory into the RDF store, auto-detecting or 
 |---|---|---|---|
 | `path` | string | yes | Path to a file or project directory |
 | `language` | string | no | Language hint. Currently supported: `rust`. Default: auto-detect from project markers |
-| `graph` | string | no | Target named graph URI. Default: `code:<language>` |
 
 **Behavior:**
 - If `path` is a directory, recursively discover source files for the specified (or detected) language
@@ -218,7 +219,6 @@ Load Rust source code into the RDF store.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Path to a `.rs` file, a directory, or a Cargo workspace root |
-| `graph` | string | no | Target named graph URI. Default: `code:rust` |
 
 **Rust-specific behavior:**
 - Parses `Cargo.toml` for project metadata and dependencies
@@ -234,7 +234,6 @@ Load Python source code into the RDF store.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Path to a `.py` file, a directory, or a project root with `pyproject.toml` |
-| `graph` | string | no | Target named graph URI. Default: `code:python` |
 
 **Python-specific behavior:**
 - Parses `pyproject.toml` / `setup.py` / `requirements.txt` for dependencies
@@ -249,7 +248,6 @@ Load TypeScript/JavaScript source code into the RDF store.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Path to a `.ts`/`.js` file, a directory, or a project root with `package.json` |
-| `graph` | string | no | Target named graph URI. Default: `code:typescript` |
 
 **TypeScript-specific behavior:**
 - Parses `package.json` for project metadata and dependencies
@@ -264,7 +262,6 @@ Load git commit history into the RDF store from a git repository.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Path to a git repository (must contain a `.git` directory) |
-| `graph` | string | no | Target named graph URI. Default: `code:git` |
 | `max_commits` | integer | no | Maximum number of commits to load. Default: 500 |
 | `branch` | string | no | Branch or ref to walk. Default: `HEAD` |
 
@@ -273,7 +270,7 @@ Load git commit history into the RDF store from a git repository.
 - Extracts commit metadata: hash, author, committer, date, message, parent(s)
 - Extracts per-commit file changes via diff-tree: added, modified, deleted, renamed files
 - Each commit is a `code:Commit` node; each file change is a `code:FileChange` node linked to the commit
-- File changes are linked to `code:Module` nodes (via `code:affectsModule`) when a corresponding module has been loaded by a code loader — this enables cross-graph queries joining code structure with change history
+- File changes are linked to `code:Module` nodes (via `code:affectsModule`) when a corresponding module has been loaded by a code loader — since all data lives in the default graph, simple joins connect git history with code structure
 - Commit URIs use the short hash: `code:commit/<short_hash>` (e.g., `code:commit/4ad47e6`)
 - FileChange URIs: `code:commit/<short_hash>/<relative_path>` (e.g., `code:commit/4ad47e6/src/main.rs`)
 - The `code:Project` node (if present from a code loader) is linked to commits via `code:hasCommit`
@@ -300,17 +297,13 @@ SELECT ?path ?type WHERE {
   ?ch code:filePath ?path ; code:changeType ?type .
 }
 
-# Cross-graph: find commits that touched functions in a module
+# Find commits that touched functions in a module (single-graph join)
 PREFIX code: <https://ds-labs.org/code#>
 SELECT ?hash ?msg ?fname WHERE {
-  GRAPH <code:git> {
-    ?c a code:Commit ; code:shortHash ?hash ; code:message ?msg ; code:hasChange ?ch .
-    ?ch code:affectsModule ?mod .
-  }
-  GRAPH <code:rust> {
-    ?mod a code:Module ; code:hasFunction ?f .
-    ?f code:name ?fname .
-  }
+  ?c a code:Commit ; code:shortHash ?hash ; code:message ?msg ; code:hasChange ?ch .
+  ?ch code:affectsModule ?mod .
+  ?mod a code:Module ; code:hasFunction ?f .
+  ?f code:name ?fname .
 }
 ```
 

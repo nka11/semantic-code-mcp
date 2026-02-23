@@ -64,9 +64,9 @@ Load git commit history into the RDF knowledge graph, enabling queries that join
   - Generate `code:Commit` and `code:FileChange` RDF triples
   - Cross-graph linking: `code:FileChange` → `code:Module` via `code:affectsModule`
 - Implement `load_git_history` tool in `tools/git.rs`
-- Default named graph: `code:git`
+- All triples written to the default graph (unified with code loaders)
 - Unit tests with temporary git repositories
-- Manual testing: load history and run cross-graph SPARQL queries
+- Manual testing: load history and run SPARQL queries joining git history with code structure
 
 ### M7 — Advanced Features
 - Named graph management tools (`drop_graph`, `export_rdf`)
