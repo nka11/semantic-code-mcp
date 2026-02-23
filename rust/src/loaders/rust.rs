@@ -135,11 +135,7 @@ fn extract_fn_quads(func: &syn::ItemFn, module_uri: &NamedNode, rel_path: &str) 
 
     quads.push(qt(&fn_uri, "Function"));
     quads.push(q(&fn_uri, "name", string_literal(&name)));
-    quads.push(q(
-        &fn_uri,
-        "definedIn",
-        Term::NamedNode(module_uri.clone()),
-    ));
+    quads.push(q(&fn_uri, "definedIn", Term::NamedNode(module_uri.clone())));
     quads.push(q(
         &fn_uri,
         "visibility",
@@ -306,21 +302,13 @@ fn extract_impl_quads(item: &syn::ItemImpl, module_uri: &NamedNode, rel_path: &s
 
             quads.push(qt(&fn_uri, "Function"));
             quads.push(q(&fn_uri, "name", string_literal(&method_name)));
-            quads.push(q(
-                &fn_uri,
-                "definedIn",
-                Term::NamedNode(module_uri.clone()),
-            ));
+            quads.push(q(&fn_uri, "definedIn", Term::NamedNode(module_uri.clone())));
             quads.push(q(
                 &fn_uri,
                 "visibility",
                 string_literal(visibility_str(&method.vis)),
             ));
-            quads.push(q(
-                &type_uri,
-                "hasFunction",
-                Term::NamedNode(fn_uri.clone()),
-            ));
+            quads.push(q(&type_uri, "hasFunction", Term::NamedNode(fn_uri.clone())));
 
             let start = method.sig.ident.span().start().line;
             quads.push(q(&fn_uri, "startLine", integer_literal(start as i64)));

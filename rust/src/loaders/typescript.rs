@@ -1,9 +1,9 @@
 use super::{code_ns, integer_literal, quad, quad_type, string_literal, LanguageLoader, LoadError};
-use oxigraph::model::{GraphName, NamedNode, Quad, Term};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::*;
 use oxc_parser::Parser;
 use oxc_span::SourceType;
+use oxigraph::model::{GraphName, NamedNode, Quad, Term};
 use std::path::Path;
 
 pub struct TypeScriptLoader;
@@ -22,7 +22,6 @@ fn qt(subject: &NamedNode, class: &str) -> Quad {
 
 // --- Line number conversion ---
 
-/// Build a table of byte offsets where each line starts.
 fn build_line_table(source: &str) -> Vec<u32> {
     let mut table = vec![0u32];
     for (i, byte) in source.bytes().enumerate() {
@@ -33,7 +32,6 @@ fn build_line_table(source: &str) -> Vec<u32> {
     table
 }
 
-/// Convert a byte offset to a 1-based line number.
 fn offset_to_line(line_table: &[u32], offset: u32) -> usize {
     match line_table.binary_search(&offset) {
         Ok(idx) => idx + 1,
@@ -43,27 +41,19 @@ fn offset_to_line(line_table: &[u32], offset: u32) -> usize {
 
 // --- JSDoc extraction ---
 
-/// Extract and clean a JSDoc comment (/** ... */) immediately preceding a declaration.
-fn extract_jsdoc(
-    comments: &[oxc_ast::Comment],
-    decl_start: u32,
-    source: &str,
-) -> Option<String> {
+fn extract_jsdoc(comments: &[oxc_ast::Comment], decl_start: u32, source: &str) -> Option<String> {
     let mut best: Option<&oxc_ast::Comment> = None;
     for comment in comments {
-        // Only block comments (single-line or multi-line)
         if matches!(comment.kind, oxc_ast::CommentKind::Line) {
             continue;
         }
         if comment.span.end >= decl_start {
             continue;
         }
-        // Only whitespace between comment end and declaration
         let between = &source[comment.span.end as usize..decl_start as usize];
         if !between.trim().is_empty() {
             continue;
         }
-        // Must be a JSDoc comment (starts with /**)
         let comment_src = &source[comment.span.start as usize..comment.span.end as usize];
         if !comment_src.starts_with("/**") {
             continue;
@@ -76,7 +66,6 @@ fn extract_jsdoc(
     }
 
     best.map(|c| {
-        // Content between /** and */
         let raw = &source[(c.span.start as usize + 3)..(c.span.end as usize - 2)];
         let cleaned: Vec<String> = raw
             .lines()
@@ -103,12 +92,11 @@ fn extract_jsdoc(
 fn parse_package_json(project_root: &Path) -> Result<Vec<Quad>, LoadError> {
     let pkg_path = project_root.join("package.json");
     let content = std::fs::read_to_string(&pkg_path)?;
-    let doc: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| LoadError::Parse {
-            file: pkg_path.clone(),
-            line: None,
-            message: e.to_string(),
-        })?;
+    let doc: serde_json::Value = serde_json::from_str(&content).map_err(|e| LoadError::Parse {
+        file: pkg_path.clone(),
+        line: None,
+        message: e.to_string(),
+    })?;
 
     let mut quads = Vec::new();
 
@@ -196,7 +184,7 @@ fn format_ts_type(ty: &TSType) -> String {
     }
 }
 
-// --- Binding pattern helpers ---
+// --- Helpers ---
 
 fn binding_pattern_name(pat: &BindingPattern) -> Option<String> {
     match pat {
@@ -214,7 +202,6 @@ fn property_key_name(key: &PropertyKey) -> Option<String> {
     }
 }
 
-/// Extract a name from an expression (for extends/implements clauses).
 fn expr_to_name(expr: &Expression) -> String {
     match expr {
         Expression::Identifier(id) => id.name.to_string(),
@@ -225,20 +212,26 @@ fn expr_to_name(expr: &Expression) -> String {
     }
 }
 
+/// Context passed through statement processing for JSDoc span tracking.
+struct ExtractCtx<'a> {
+    module_uri: &'a NamedNode,
+    rel_path: &'a str,
+    line_table: &'a [u32],
+    comments: &'a [oxc_ast::Comment],
+    source: &'a str,
+}
+
 // --- AST extraction ---
 
 fn extract_function_quads(
     func: &Function,
-    module_uri: &NamedNode,
-    rel_path: &str,
+    ctx: &ExtractCtx,
     is_export: bool,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
+    jsdoc_start: u32,
 ) -> Vec<Quad> {
     let Some(id) = &func.id else { return vec![] };
     let name = id.name.as_str();
-    let fn_uri = code_ns(&format!("{rel_path}/{name}"));
+    let fn_uri = code_ns(&format!("{}/{name}", ctx.rel_path));
     let mut quads = Vec::new();
 
     quads.push(qt(&fn_uri, "Function"));
@@ -246,10 +239,10 @@ fn extract_function_quads(
     quads.push(q(
         &fn_uri,
         "definedIn",
-        Term::NamedNode(module_uri.clone()),
+        Term::NamedNode(ctx.module_uri.clone()),
     ));
     quads.push(q(
-        module_uri,
+        ctx.module_uri,
         "hasFunction",
         Term::NamedNode(fn_uri.clone()),
     ));
@@ -257,8 +250,8 @@ fn extract_function_quads(
     let vis = if is_export { "export" } else { "private" };
     quads.push(q(&fn_uri, "visibility", string_literal(vis)));
 
-    let start = offset_to_line(line_table, func.span.start);
-    let end = offset_to_line(line_table, func.span.end);
+    let start = offset_to_line(ctx.line_table, func.span.start);
+    let end = offset_to_line(ctx.line_table, func.span.end);
     quads.push(q(&fn_uri, "startLine", integer_literal(start as i64)));
     quads.push(q(&fn_uri, "endLine", integer_literal(end as i64)));
 
@@ -276,7 +269,7 @@ fn extract_function_quads(
         ));
     }
 
-    if let Some(doc) = extract_jsdoc(comments, func.span.start, source) {
+    if let Some(doc) = extract_jsdoc(ctx.comments, jsdoc_start, ctx.source) {
         quads.push(q(&fn_uri, "docstring", string_literal(&doc)));
     }
 
@@ -286,15 +279,11 @@ fn extract_function_quads(
 fn extract_arrow_fn_quads(
     name: &str,
     arrow: &ArrowFunctionExpression,
-    module_uri: &NamedNode,
-    rel_path: &str,
+    ctx: &ExtractCtx,
     is_export: bool,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
-    decl_start: u32,
+    jsdoc_start: u32,
 ) -> Vec<Quad> {
-    let fn_uri = code_ns(&format!("{rel_path}/{name}"));
+    let fn_uri = code_ns(&format!("{}/{name}", ctx.rel_path));
     let mut quads = Vec::new();
 
     quads.push(qt(&fn_uri, "Function"));
@@ -302,10 +291,10 @@ fn extract_arrow_fn_quads(
     quads.push(q(
         &fn_uri,
         "definedIn",
-        Term::NamedNode(module_uri.clone()),
+        Term::NamedNode(ctx.module_uri.clone()),
     ));
     quads.push(q(
-        module_uri,
+        ctx.module_uri,
         "hasFunction",
         Term::NamedNode(fn_uri.clone()),
     ));
@@ -313,8 +302,8 @@ fn extract_arrow_fn_quads(
     let vis = if is_export { "export" } else { "private" };
     quads.push(q(&fn_uri, "visibility", string_literal(vis)));
 
-    let start = offset_to_line(line_table, arrow.span.start);
-    let end = offset_to_line(line_table, arrow.span.end);
+    let start = offset_to_line(ctx.line_table, arrow.span.start);
+    let end = offset_to_line(ctx.line_table, arrow.span.end);
     quads.push(q(&fn_uri, "startLine", integer_literal(start as i64)));
     quads.push(q(&fn_uri, "endLine", integer_literal(end as i64)));
 
@@ -332,7 +321,7 @@ fn extract_arrow_fn_quads(
         ));
     }
 
-    if let Some(doc) = extract_jsdoc(comments, decl_start, source) {
+    if let Some(doc) = extract_jsdoc(ctx.comments, jsdoc_start, ctx.source) {
         quads.push(q(&fn_uri, "docstring", string_literal(&doc)));
     }
 
@@ -341,16 +330,13 @@ fn extract_arrow_fn_quads(
 
 fn extract_class_quads(
     class: &Class,
-    module_uri: &NamedNode,
-    rel_path: &str,
+    ctx: &ExtractCtx,
     is_export: bool,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
+    jsdoc_start: u32,
 ) -> Vec<Quad> {
     let Some(id) = &class.id else { return vec![] };
     let name = id.name.as_str();
-    let class_uri = code_ns(&format!("{rel_path}/{name}"));
+    let class_uri = code_ns(&format!("{}/{name}", ctx.rel_path));
     let mut quads = Vec::new();
 
     quads.push(qt(&class_uri, "Class"));
@@ -358,18 +344,17 @@ fn extract_class_quads(
     quads.push(q(
         &class_uri,
         "definedIn",
-        Term::NamedNode(module_uri.clone()),
+        Term::NamedNode(ctx.module_uri.clone()),
     ));
 
     let vis = if is_export { "export" } else { "private" };
     quads.push(q(&class_uri, "visibility", string_literal(vis)));
 
-    let start = offset_to_line(line_table, class.span.start);
-    let end = offset_to_line(line_table, class.span.end);
+    let start = offset_to_line(ctx.line_table, class.span.start);
+    let end = offset_to_line(ctx.line_table, class.span.end);
     quads.push(q(&class_uri, "startLine", integer_literal(start as i64)));
     quads.push(q(&class_uri, "endLine", integer_literal(end as i64)));
 
-    // Implements (Vec<TSClassImplements>, expression is TSTypeName which has Display)
     for imp in &class.implements {
         quads.push(q(
             &class_uri,
@@ -378,24 +363,25 @@ fn extract_class_quads(
         ));
     }
 
-    // Superclass (Expression, no Display)
     if let Some(super_class) = &class.super_class {
-        let super_name = expr_to_name(super_class);
-        quads.push(q(&class_uri, "extends", string_literal(&super_name)));
+        quads.push(q(
+            &class_uri,
+            "extends",
+            string_literal(&expr_to_name(super_class)),
+        ));
     }
 
-    // Body members
     for element in &class.body.body {
         match element {
             ClassElement::MethodDefinition(method) => {
                 if let Some(method_name) = property_key_name(&method.key) {
-                    let fn_uri = code_ns(&format!("{rel_path}/{name}/{method_name}"));
+                    let fn_uri = code_ns(&format!("{}/{name}/{method_name}", ctx.rel_path));
                     quads.push(qt(&fn_uri, "Function"));
                     quads.push(q(&fn_uri, "name", string_literal(&method_name)));
                     quads.push(q(
                         &fn_uri,
                         "definedIn",
-                        Term::NamedNode(module_uri.clone()),
+                        Term::NamedNode(ctx.module_uri.clone()),
                     ));
                     quads.push(q(
                         &class_uri,
@@ -403,8 +389,8 @@ fn extract_class_quads(
                         Term::NamedNode(fn_uri.clone()),
                     ));
 
-                    let m_start = offset_to_line(line_table, method.span.start);
-                    let m_end = offset_to_line(line_table, method.span.end);
+                    let m_start = offset_to_line(ctx.line_table, method.span.start);
+                    let m_end = offset_to_line(ctx.line_table, method.span.end);
                     quads.push(q(&fn_uri, "startLine", integer_literal(m_start as i64)));
                     quads.push(q(&fn_uri, "endLine", integer_literal(m_end as i64)));
 
@@ -432,7 +418,7 @@ fn extract_class_quads(
         }
     }
 
-    if let Some(doc) = extract_jsdoc(comments, class.span.start, source) {
+    if let Some(doc) = extract_jsdoc(ctx.comments, jsdoc_start, ctx.source) {
         quads.push(q(&class_uri, "docstring", string_literal(&doc)));
     }
 
@@ -441,36 +427,38 @@ fn extract_class_quads(
 
 fn extract_interface_quads(
     iface: &TSInterfaceDeclaration,
-    module_uri: &NamedNode,
-    rel_path: &str,
+    ctx: &ExtractCtx,
     is_export: bool,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
+    jsdoc_start: u32,
 ) -> Vec<Quad> {
     let name = iface.id.name.as_str();
-    let uri = code_ns(&format!("{rel_path}/{name}"));
+    let uri = code_ns(&format!("{}/{name}", ctx.rel_path));
     let mut quads = Vec::new();
 
     quads.push(qt(&uri, "Trait"));
     quads.push(q(&uri, "name", string_literal(name)));
-    quads.push(q(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
+    quads.push(q(
+        &uri,
+        "definedIn",
+        Term::NamedNode(ctx.module_uri.clone()),
+    ));
 
     let vis = if is_export { "export" } else { "private" };
     quads.push(q(&uri, "visibility", string_literal(vis)));
 
-    let start = offset_to_line(line_table, iface.span.start);
-    let end = offset_to_line(line_table, iface.span.end);
+    let start = offset_to_line(ctx.line_table, iface.span.start);
+    let end = offset_to_line(ctx.line_table, iface.span.end);
     quads.push(q(&uri, "startLine", integer_literal(start as i64)));
     quads.push(q(&uri, "endLine", integer_literal(end as i64)));
 
-    // Extends (Vec, iterate directly)
     for heritage in &iface.extends {
-        let ext_name = expr_to_name(&heritage.expression);
-        quads.push(q(&uri, "extends", string_literal(&ext_name)));
+        quads.push(q(
+            &uri,
+            "extends",
+            string_literal(&expr_to_name(&heritage.expression)),
+        ));
     }
 
-    // Body members
     for sig in &iface.body.body {
         match sig {
             TSSignature::TSMethodSignature(method) => {
@@ -487,7 +475,7 @@ fn extract_interface_quads(
         }
     }
 
-    if let Some(doc) = extract_jsdoc(comments, iface.span.start, source) {
+    if let Some(doc) = extract_jsdoc(ctx.comments, jsdoc_start, ctx.source) {
         quads.push(q(&uri, "docstring", string_literal(&doc)));
     }
 
@@ -496,31 +484,32 @@ fn extract_interface_quads(
 
 fn extract_type_alias_quads(
     alias: &TSTypeAliasDeclaration,
-    module_uri: &NamedNode,
-    rel_path: &str,
+    ctx: &ExtractCtx,
     is_export: bool,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
+    jsdoc_start: u32,
 ) -> Vec<Quad> {
     let name = alias.id.name.as_str();
-    let uri = code_ns(&format!("{rel_path}/{name}"));
+    let uri = code_ns(&format!("{}/{name}", ctx.rel_path));
     let mut quads = Vec::new();
 
     quads.push(qt(&uri, "Class"));
     quads.push(q(&uri, "name", string_literal(name)));
     quads.push(q(&uri, "kind", string_literal("type_alias")));
-    quads.push(q(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
+    quads.push(q(
+        &uri,
+        "definedIn",
+        Term::NamedNode(ctx.module_uri.clone()),
+    ));
 
     let vis = if is_export { "export" } else { "private" };
     quads.push(q(&uri, "visibility", string_literal(vis)));
 
-    let start = offset_to_line(line_table, alias.span.start);
-    let end = offset_to_line(line_table, alias.span.end);
+    let start = offset_to_line(ctx.line_table, alias.span.start);
+    let end = offset_to_line(ctx.line_table, alias.span.end);
     quads.push(q(&uri, "startLine", integer_literal(start as i64)));
     quads.push(q(&uri, "endLine", integer_literal(end as i64)));
 
-    if let Some(doc) = extract_jsdoc(comments, alias.span.start, source) {
+    if let Some(doc) = extract_jsdoc(ctx.comments, jsdoc_start, ctx.source) {
         quads.push(q(&uri, "docstring", string_literal(&doc)));
     }
 
@@ -529,26 +518,27 @@ fn extract_type_alias_quads(
 
 fn extract_enum_quads(
     ts_enum: &TSEnumDeclaration,
-    module_uri: &NamedNode,
-    rel_path: &str,
+    ctx: &ExtractCtx,
     is_export: bool,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
+    jsdoc_start: u32,
 ) -> Vec<Quad> {
     let name = ts_enum.id.name.as_str();
-    let uri = code_ns(&format!("{rel_path}/{name}"));
+    let uri = code_ns(&format!("{}/{name}", ctx.rel_path));
     let mut quads = Vec::new();
 
     quads.push(qt(&uri, "Enum"));
     quads.push(q(&uri, "name", string_literal(name)));
-    quads.push(q(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
+    quads.push(q(
+        &uri,
+        "definedIn",
+        Term::NamedNode(ctx.module_uri.clone()),
+    ));
 
     let vis = if is_export { "export" } else { "private" };
     quads.push(q(&uri, "visibility", string_literal(vis)));
 
-    let start = offset_to_line(line_table, ts_enum.span.start);
-    let end = offset_to_line(line_table, ts_enum.span.end);
+    let start = offset_to_line(ctx.line_table, ts_enum.span.start);
+    let end = offset_to_line(ctx.line_table, ts_enum.span.end);
     quads.push(q(&uri, "startLine", integer_literal(start as i64)));
     quads.push(q(&uri, "endLine", integer_literal(end as i64)));
 
@@ -561,7 +551,7 @@ fn extract_enum_quads(
         quads.push(q(&uri, "hasVariant", string_literal(&variant_name)));
     }
 
-    if let Some(doc) = extract_jsdoc(comments, ts_enum.span.start, source) {
+    if let Some(doc) = extract_jsdoc(ctx.comments, jsdoc_start, ctx.source) {
         quads.push(q(&uri, "docstring", string_literal(&doc)));
     }
 
@@ -580,12 +570,9 @@ fn extract_import_quads(import: &ImportDeclaration, module_uri: &NamedNode) -> V
 
 fn extract_var_decl_quads(
     decl: &VariableDeclaration,
-    module_uri: &NamedNode,
-    rel_path: &str,
+    ctx: &ExtractCtx,
     is_export: bool,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
+    jsdoc_start: u32,
 ) -> Vec<Quad> {
     let mut quads = Vec::new();
     for declarator in &decl.declarations {
@@ -600,26 +587,22 @@ fn extract_var_decl_quads(
                 quads.extend(extract_arrow_fn_quads(
                     &name,
                     arrow,
-                    module_uri,
-                    rel_path,
+                    ctx,
                     is_export,
-                    line_table,
-                    comments,
-                    source,
-                    decl.span.start,
+                    jsdoc_start,
                 ));
             }
             Expression::FunctionExpression(func) => {
-                let fn_uri = code_ns(&format!("{rel_path}/{name}"));
+                let fn_uri = code_ns(&format!("{}/{name}", ctx.rel_path));
                 quads.push(qt(&fn_uri, "Function"));
                 quads.push(q(&fn_uri, "name", string_literal(&name)));
                 quads.push(q(
                     &fn_uri,
                     "definedIn",
-                    Term::NamedNode(module_uri.clone()),
+                    Term::NamedNode(ctx.module_uri.clone()),
                 ));
                 quads.push(q(
-                    module_uri,
+                    ctx.module_uri,
                     "hasFunction",
                     Term::NamedNode(fn_uri.clone()),
                 ));
@@ -627,8 +610,8 @@ fn extract_var_decl_quads(
                 let vis = if is_export { "export" } else { "private" };
                 quads.push(q(&fn_uri, "visibility", string_literal(vis)));
 
-                let start = offset_to_line(line_table, func.span.start);
-                let end = offset_to_line(line_table, func.span.end);
+                let start = offset_to_line(ctx.line_table, func.span.start);
+                let end = offset_to_line(ctx.line_table, func.span.end);
                 quads.push(q(&fn_uri, "startLine", integer_literal(start as i64)));
                 quads.push(q(&fn_uri, "endLine", integer_literal(end as i64)));
 
@@ -652,81 +635,69 @@ fn extract_var_decl_quads(
 }
 
 /// Process a top-level statement and extract RDF quads.
-fn process_statement(
-    stmt: &Statement,
-    module_uri: &NamedNode,
-    rel_path: &str,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
-) -> Vec<Quad> {
+fn process_statement(stmt: &Statement, ctx: &ExtractCtx) -> Vec<Quad> {
     match stmt {
-        Statement::FunctionDeclaration(func) => extract_function_quads(
-            func, module_uri, rel_path, false, line_table, comments, source,
-        ),
-        Statement::ClassDeclaration(class) => extract_class_quads(
-            class, module_uri, rel_path, false, line_table, comments, source,
-        ),
-        Statement::TSTypeAliasDeclaration(alias) => extract_type_alias_quads(
-            alias, module_uri, rel_path, false, line_table, comments, source,
-        ),
-        Statement::TSInterfaceDeclaration(iface) => extract_interface_quads(
-            iface, module_uri, rel_path, false, line_table, comments, source,
-        ),
-        Statement::TSEnumDeclaration(ts_enum) => extract_enum_quads(
-            ts_enum, module_uri, rel_path, false, line_table, comments, source,
-        ),
-        Statement::VariableDeclaration(decl) => extract_var_decl_quads(
-            decl, module_uri, rel_path, false, line_table, comments, source,
-        ),
-        Statement::ImportDeclaration(import) => extract_import_quads(import, module_uri),
+        Statement::FunctionDeclaration(func) => {
+            extract_function_quads(func, ctx, false, func.span.start)
+        }
+        Statement::ClassDeclaration(class) => {
+            extract_class_quads(class, ctx, false, class.span.start)
+        }
+        Statement::TSTypeAliasDeclaration(alias) => {
+            extract_type_alias_quads(alias, ctx, false, alias.span.start)
+        }
+        Statement::TSInterfaceDeclaration(iface) => {
+            extract_interface_quads(iface, ctx, false, iface.span.start)
+        }
+        Statement::TSEnumDeclaration(ts_enum) => {
+            extract_enum_quads(ts_enum, ctx, false, ts_enum.span.start)
+        }
+        Statement::VariableDeclaration(decl) => {
+            extract_var_decl_quads(decl, ctx, false, decl.span.start)
+        }
+        Statement::ImportDeclaration(import) => extract_import_quads(import, ctx.module_uri),
         Statement::ExportNamedDeclaration(export) => {
             if let Some(decl) = &export.declaration {
-                process_export_declaration(decl, module_uri, rel_path, line_table, comments, source)
+                // Pass export span start for JSDoc (comment is before `export`)
+                process_export_declaration(decl, ctx, export.span.start)
             } else {
                 vec![]
             }
         }
-        Statement::ExportDefaultDeclaration(export) => match &export.declaration {
-            ExportDefaultDeclarationKind::FunctionDeclaration(func) => extract_function_quads(
-                func, module_uri, rel_path, true, line_table, comments, source,
-            ),
-            ExportDefaultDeclarationKind::ClassDeclaration(class) => extract_class_quads(
-                class, module_uri, rel_path, true, line_table, comments, source,
-            ),
-            _ => vec![],
-        },
+        Statement::ExportDefaultDeclaration(export) => {
+            let js = export.span.start;
+            match &export.declaration {
+                ExportDefaultDeclarationKind::FunctionDeclaration(func) => {
+                    extract_function_quads(func, ctx, true, js)
+                }
+                ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                    extract_class_quads(class, ctx, true, js)
+                }
+                _ => vec![],
+            }
+        }
         _ => vec![],
     }
 }
 
-fn process_export_declaration(
-    decl: &Declaration,
-    module_uri: &NamedNode,
-    rel_path: &str,
-    line_table: &[u32],
-    comments: &[oxc_ast::Comment],
-    source: &str,
-) -> Vec<Quad> {
+fn process_export_declaration(decl: &Declaration, ctx: &ExtractCtx, jsdoc_start: u32) -> Vec<Quad> {
     match decl {
-        Declaration::FunctionDeclaration(func) => extract_function_quads(
-            func, module_uri, rel_path, true, line_table, comments, source,
-        ),
-        Declaration::ClassDeclaration(class) => extract_class_quads(
-            class, module_uri, rel_path, true, line_table, comments, source,
-        ),
-        Declaration::TSTypeAliasDeclaration(alias) => extract_type_alias_quads(
-            alias, module_uri, rel_path, true, line_table, comments, source,
-        ),
-        Declaration::TSInterfaceDeclaration(iface) => extract_interface_quads(
-            iface, module_uri, rel_path, true, line_table, comments, source,
-        ),
-        Declaration::TSEnumDeclaration(ts_enum) => extract_enum_quads(
-            ts_enum, module_uri, rel_path, true, line_table, comments, source,
-        ),
-        Declaration::VariableDeclaration(var_decl) => extract_var_decl_quads(
-            var_decl, module_uri, rel_path, true, line_table, comments, source,
-        ),
+        Declaration::FunctionDeclaration(func) => {
+            extract_function_quads(func, ctx, true, jsdoc_start)
+        }
+        Declaration::ClassDeclaration(class) => extract_class_quads(class, ctx, true, jsdoc_start),
+        Declaration::TSTypeAliasDeclaration(alias) => {
+            extract_type_alias_quads(alias, ctx, true, jsdoc_start)
+        }
+        Declaration::TSInterfaceDeclaration(iface) => {
+            extract_interface_quads(iface, ctx, true, jsdoc_start)
+        }
+        Declaration::TSEnumDeclaration(ts_enum) => {
+            extract_enum_quads(ts_enum, ctx, true, jsdoc_start)
+        }
+        Declaration::VariableDeclaration(var_decl) => {
+            extract_var_decl_quads(var_decl, ctx, true, jsdoc_start)
+        }
         _ => vec![],
     }
 }
@@ -747,15 +718,13 @@ fn parse_ts_file(path: &Path, project_root: &Path) -> Result<Vec<Quad>, LoadErro
 
     if !ret.errors.is_empty() {
         let first = &ret.errors[0];
-        // Try to get line info from labels
         let line = first
             .labels
             .as_ref()
             .and_then(|labels| labels.first())
-            .map(|label| label.offset())
-            .map(|offset| {
+            .map(|label| {
                 let line_table = build_line_table(&source);
-                offset_to_line(&line_table, offset as u32)
+                offset_to_line(&line_table, label.offset() as u32)
             });
         return Err(LoadError::Parse {
             file: path.to_path_buf(),
@@ -772,7 +741,14 @@ fn parse_ts_file(path: &Path, project_root: &Path) -> Result<Vec<Quad>, LoadErro
 
     let module_uri = code_ns(&rel_path);
     let line_table = build_line_table(&source);
-    let comments = &ret.program.comments;
+
+    let ctx = ExtractCtx {
+        module_uri: &module_uri,
+        rel_path: &rel_path,
+        line_table: &line_table,
+        comments: &ret.program.comments,
+        source: &source,
+    };
 
     let mut quads = Vec::new();
 
@@ -786,14 +762,7 @@ fn parse_ts_file(path: &Path, project_root: &Path) -> Result<Vec<Quad>, LoadErro
     quads.push(q(&module_uri, "language", string_literal("typescript")));
 
     for stmt in &ret.program.body {
-        quads.extend(process_statement(
-            stmt,
-            &module_uri,
-            &rel_path,
-            &line_table,
-            comments,
-            &source,
-        ));
+        quads.extend(process_statement(stmt, &ctx));
     }
 
     Ok(quads)
