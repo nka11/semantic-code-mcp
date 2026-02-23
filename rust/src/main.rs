@@ -73,7 +73,7 @@ impl OxigraphServer {
         }
     }
 
-    #[tool(description = "Execute a read-only SPARQL query (SELECT, CONSTRUCT, ASK, DESCRIBE)")]
+    #[tool(description = "Execute a read-only SPARQL query (SELECT, CONSTRUCT, ASK, DESCRIBE). Use this instead of grep/find to search code precisely. Always set default_graph (e.g. \"code:rust\") when querying loaded code. Prefix: PREFIX code: <https://ds-labs.org/code#>. Common patterns: find function by name: ?f a code:Function ; code:name \"foo\". Find where defined: ?f code:definedIn ?mod ; get file: ?mod code:filePath ?path. Find struct methods: ?c a code:Class ; code:name \"MyStruct\" ; code:hasFunction ?m. ?m code:name ?name. Find trait implementations: ?c code:implements \"TraitName\". List all functions in a file: ?f a code:Function ; code:definedIn ?mod. ?mod code:relativePath \"src/main.rs\". Get function signature: ?f code:parameter ?p ; code:returnType ?rt. Get line numbers: ?f code:startLine ?start ; code:endLine ?end. Find imports: ?mod code:hasImport ?imp. ?imp code:importPath ?path. Find dependencies: ?proj a code:Project ; code:hasDependency ?dep. ?dep code:name ?name ; code:version ?ver.")]
     async fn sparql_query(
         &self,
         Parameters(params): Parameters<SparqlQueryParams>,
@@ -144,7 +144,7 @@ impl OxigraphServer {
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
     }
 
-    #[tool(description = "Load Rust source code into the RDF store. Parses Cargo.toml for project metadata and .rs files for functions, structs, enums, traits, and impl blocks. Produces RDF triples in the code: namespace (https://ds-labs.org/code#). Classes: Project, Module, Function, Class (structs), Enum, Trait, Import, Dependency. Key properties: name, filePath, relativePath, definedIn, hasFunction, hasMethod, hasField, hasVariant, hasImport, hasDependency, hasModule, implements, visibility, docstring, parameter, returnType. Default graph: code:rust.")]
+    #[tool(description = "Load Rust source code into the RDF store. Parses Cargo.toml for project metadata and .rs files for functions, structs, enums, traits, and impl blocks. Produces RDF triples in the code: namespace (https://ds-labs.org/code#). Default graph: code:rust. After loading, use sparql_query with default_graph=\"code:rust\" to query. Classes: Project (name, version, edition, language, hasDependency, hasModule), Module (name, filePath, relativePath, hasFunction, hasImport), Function (name, visibility, parameter, returnType, startLine, endLine, definedIn, docstring), Class (structs: name, visibility, hasField, hasFunction/hasMethod, implements, startLine, endLine, definedIn, docstring), Enum (name, visibility, hasVariant, startLine, endLine, definedIn), Trait (name, visibility, hasFunction, startLine, endLine, definedIn), Import (importPath), Dependency (name, version). Entity URIs use relative paths: code:src/main.rs, code:src/main.rs/MyStruct, code:src/main.rs/my_function. Use definedIn to navigate from entity to module, filePath/relativePath to get the actual file path for reading source code.")]
     async fn load_rust_code(
         &self,
         Parameters(params): Parameters<LoadRustCodeParams>,

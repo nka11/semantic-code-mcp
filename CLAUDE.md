@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-- launch semantic-code-mcp tool load_rust_code at startup.
+- launch semantic-code-mcp tool load_rust_code with path `rust/` at startup.
 
 ## Project
 
