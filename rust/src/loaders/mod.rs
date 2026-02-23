@@ -1,10 +1,73 @@
 pub mod rust;
 
-use oxigraph::model::Quad;
+use oxigraph::model::{GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+
+// --- Shared RDF helpers for code loaders ---
+
+pub const CODE_NS: &str = "https://ds-labs.org/code#";
+const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
+
+/// Percent-encode characters that are invalid in IRIs.
+pub fn sanitize_iri_local(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '<' => out.push_str("%3C"),
+            '>' => out.push_str("%3E"),
+            '{' => out.push_str("%7B"),
+            '}' => out.push_str("%7D"),
+            ' ' => out.push_str("%20"),
+            '"' => out.push_str("%22"),
+            '|' => out.push_str("%7C"),
+            '\\' => out.push_str("%5C"),
+            '^' => out.push_str("%5E"),
+            '`' => out.push_str("%60"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+pub fn code_ns(local: &str) -> NamedNode {
+    NamedNode::new(format!("{CODE_NS}{}", sanitize_iri_local(local))).unwrap()
+}
+
+pub fn rdf_type() -> NamedNode {
+    NamedNode::new(RDF_TYPE).unwrap()
+}
+
+pub fn string_literal(value: &str) -> Term {
+    Term::Literal(Literal::new_simple_literal(value))
+}
+
+pub fn integer_literal(value: i64) -> Term {
+    Term::Literal(Literal::new_typed_literal(
+        value.to_string(),
+        NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
+    ))
+}
+
+pub fn quad(subject: &NamedNode, predicate: &str, object: Term, graph: GraphName) -> Quad {
+    Quad::new(
+        NamedOrBlankNode::NamedNode(subject.clone()),
+        code_ns(predicate),
+        object,
+        graph,
+    )
+}
+
+pub fn quad_type(subject: &NamedNode, class: &str, graph: GraphName) -> Quad {
+    Quad::new(
+        NamedOrBlankNode::NamedNode(subject.clone()),
+        rdf_type(),
+        Term::NamedNode(code_ns(class)),
+        graph,
+    )
+}
 
 /// Error type for code loading operations.
 #[derive(Debug)]
