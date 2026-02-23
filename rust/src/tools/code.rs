@@ -81,9 +81,7 @@ pub fn load_code(
     }
 
     // Build summary
-    let mut summary = format!(
-        "Loaded {files_loaded} file(s), {quad_count} triples ({lang}).",
-    );
+    let mut summary = format!("Loaded {files_loaded} file(s), {quad_count} triples ({lang}).",);
 
     if !errors.is_empty() {
         summary.push_str(&format!(
@@ -96,19 +94,11 @@ pub fn load_code(
     CallToolResult::success(vec![rmcp::model::Content::text(summary)])
 }
 
-pub fn load_rust_code(
-    store: &Store,
-    registry: &LoaderRegistry,
-    path: &str,
-) -> CallToolResult {
+pub fn load_rust_code(store: &Store, registry: &LoaderRegistry, path: &str) -> CallToolResult {
     load_code(store, registry, path, Some("rust"))
 }
 
-pub fn load_ts_code(
-    store: &Store,
-    registry: &LoaderRegistry,
-    path: &str,
-) -> CallToolResult {
+pub fn load_ts_code(store: &Store, registry: &LoaderRegistry, path: &str) -> CallToolResult {
     load_code(store, registry, path, Some("typescript"))
 }
 
