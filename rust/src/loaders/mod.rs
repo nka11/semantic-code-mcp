@@ -1,4 +1,5 @@
 pub mod rust;
+pub mod typescript;
 
 use oxigraph::model::{GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::HashMap;
@@ -178,6 +179,7 @@ impl Default for LoaderRegistry {
     fn default() -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(rust::RustLoader));
+        registry.register(Box::new(typescript::TypeScriptLoader));
         registry
     }
 }
