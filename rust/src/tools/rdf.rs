@@ -10,6 +10,15 @@ fn tool_error(msg: String) -> CallToolResult {
     CallToolResult::error(vec![Content::text(msg)])
 }
 
+/// Expand the `code:` prefix shorthand to the full namespace URI.
+fn resolve_graph_uri(graph: &str) -> String {
+    if let Some(local) = graph.strip_prefix("code:") {
+        format!("{}{local}", crate::loaders::CODE_NS)
+    } else {
+        graph.to_string()
+    }
+}
+
 fn resolve_format(fmt: &str) -> Option<RdfFormat> {
     match fmt.to_lowercase().as_str() {
         "turtle" | "ttl" => Some(RdfFormat::Turtle),
@@ -68,7 +77,8 @@ pub fn load_rdf(
         };
     }
     if let Some(graph_uri) = graph {
-        let named = match NamedNode::new(graph_uri) {
+        let expanded = resolve_graph_uri(graph_uri);
+        let named = match NamedNode::new(&expanded) {
             Ok(n) => n,
             Err(e) => return tool_error(format!("Invalid graph URI: {e}")),
         };
@@ -217,6 +227,47 @@ mod tests {
                 _ => panic!(),
             },
             "true"
+        );
+    }
+
+    #[test]
+    fn test_code_prefix_expansion() {
+        let store = Store::new().unwrap();
+        let ttl = r#"
+            @prefix ex: <http://example.org/> .
+            ex:alice ex:name "Alice" .
+        "#;
+        let result = load_rdf(&store, ttl, None, None, Some("code:test"));
+        assert!(!is_error(&result));
+
+        // Verify the data is stored under the expanded URI
+        let query_result = sparql_query(
+            &store,
+            "ASK { GRAPH <https://ds-labs.org/code#test> { <http://example.org/alice> <http://example.org/name> \"Alice\" } }",
+            None,
+        );
+        assert_eq!(
+            match &query_result.content[0].raw {
+                rmcp::model::RawContent::Text(t) => t.text.as_str(),
+                _ => panic!(),
+            },
+            "true"
+        );
+    }
+
+    #[test]
+    fn test_resolve_graph_uri() {
+        assert_eq!(
+            resolve_graph_uri("code:api"),
+            "https://ds-labs.org/code#api"
+        );
+        assert_eq!(
+            resolve_graph_uri("code:typescript"),
+            "https://ds-labs.org/code#typescript"
+        );
+        assert_eq!(
+            resolve_graph_uri("http://example.org/graph"),
+            "http://example.org/graph"
         );
     }
 

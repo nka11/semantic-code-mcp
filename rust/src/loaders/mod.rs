@@ -2,11 +2,11 @@ pub mod git;
 pub mod rust;
 pub mod typescript;
 
+use ignore::WalkBuilder;
 use oxigraph::model::{GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
 
 // --- Shared RDF helpers for code loaders ---
 
@@ -127,6 +127,11 @@ pub trait LanguageLoader: Send + Sync {
     fn ignore_patterns(&self) -> &[&str] {
         &[]
     }
+
+    /// Return the project URI for the given project root, if project metadata is available.
+    fn project_uri(&self, _project_root: &Path) -> Option<NamedNode> {
+        None
+    }
 }
 
 /// Registry of available language loaders with auto-detection.
@@ -185,26 +190,37 @@ impl Default for LoaderRegistry {
     }
 }
 
-/// Walk a directory tree and collect files matching the given extensions, skipping ignore patterns.
-pub fn discover_files(root: &Path, extensions: &[&str], ignore: &[&str]) -> Vec<PathBuf> {
+/// Walk a directory tree and collect files matching the given extensions,
+/// respecting `.gitignore` and skipping hardcoded ignore patterns as fallback.
+pub fn discover_files(root: &Path, extensions: &[&str], ignore_patterns: &[&str]) -> Vec<PathBuf> {
+    let mut builder = WalkBuilder::new(root);
+    builder.hidden(true); // skip hidden files/dirs
+    builder.git_ignore(true); // respect .gitignore
+    builder.git_global(false);
+    builder.git_exclude(true);
+
+    let normalized: Vec<&str> = ignore_patterns
+        .iter()
+        .map(|p| p.trim_end_matches('/'))
+        .collect();
+
     let mut files = Vec::new();
-    for entry in WalkDir::new(root).into_iter().filter_entry(|e| {
-        let path = e.path();
-        // Skip ignored directories
-        if path.is_dir() {
-            let rel = path.strip_prefix(root).unwrap_or(path);
-            for pattern in ignore {
-                let pattern = pattern.trim_end_matches('/');
-                if rel.components().any(|c| c.as_os_str() == pattern) {
-                    return false;
-                }
+    for entry in builder.build() {
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+
+        // Additionally filter out hardcoded ignore patterns (for projects without .gitignore)
+        if let Ok(rel) = path.strip_prefix(root) {
+            if rel.components().any(|c| {
+                let s = c.as_os_str().to_string_lossy();
+                normalized.iter().any(|p| s == *p)
+            }) {
+                continue;
             }
         }
-        true
-    }) {
-        let Ok(entry) = entry else { continue };
-        if entry.file_type().is_file() {
-            if let Some(ext) = entry.path().extension().and_then(|e| e.to_str()) {
+
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 if extensions.contains(&ext) {
                     files.push(entry.into_path());
                 }
