@@ -218,7 +218,7 @@ pub fn discover_files(root: &Path, extensions: &[&str], ignore_patterns: &[&str]
             }
         }
 
-        if entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if entry.file_type().is_some_and(|ft| ft.is_file()) {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 if extensions.contains(&ext) {
                     files.push(entry.into_path());
