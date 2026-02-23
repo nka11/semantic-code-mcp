@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - launch semantic-code-mcp tool load_rust_code with path `rust/` at startup.
 
+- When exploring codebase, use semantic-code-mcp that will contains all symbols of the code.
+
 ## Project
 
 Oxigraph MCP Tools — a Rust MCP server that exposes an Oxigraph RDF triplestore via stdio JSON-RPC. It provides generic SPARQL/RDF tools plus per-language code-loading tools that parse source code into an RDF knowledge graph.
@@ -33,10 +35,15 @@ rust/src/
 ├── tools/
 │   ├── sparql.rs    # sparql_query, sparql_update — pure sync functions
 │   ├── rdf.rs       # load_rdf, list_graphs — pure sync functions
-│   └── code.rs      # load_code dispatcher, load_rust_code wrapper — pure sync functions
+│   ├── code.rs      # load_code dispatcher, load_rust_code wrapper — pure sync functions
+│   ├── git.rs       # load_git_history — pure sync function
+│   └── ansible.rs   # load_inventory, load_ansible — pure sync functions
 └── loaders/
     ├── mod.rs       # LanguageLoader trait, LoaderRegistry, discover_files()
-    └── rust.rs      # RustLoader — parses Cargo.toml + syn AST for .rs files
+    ├── rust.rs      # RustLoader — parses Cargo.toml + syn AST for .rs files
+    ├── typescript.rs # TypeScriptLoader — parses package.json + oxc AST
+    ├── git.rs       # Git commit graph + file changes parser
+    └── ansible.rs   # Ansible inventory/playbook/role parser (INI + YAML)
 ```
 
 **Key design patterns:**
@@ -45,8 +52,9 @@ rust/src/
 - `LanguageLoader` trait returns `Vec<Quad>` (graph name baked in). `LoaderRegistry` maps language IDs to loaders.
 - Language auto-detection: marker files for dirs (`Cargo.toml`, `package.json`, etc.), file extensions for single files.
 - RDF namespace: `https://ds-labs.org/code#` (`CODE_NS` in loaders). All code and git loaders write to the default graph.
+- Ansible loader uses `https://ds-labs.org/ansible#` (`ANS_NS`) and ICAS `http://www.invincea.com/ontologies/icas/1.0/host#` (`HOST_NS`) namespaces. Standalone tool pattern (not a LanguageLoader).
 
-**Key crates:** oxigraph 0.5.x (store + SPARQL), rmcp 0.16.x (MCP SDK), syn 2 (Rust AST parsing), sparesults 0.3 (SPARQL result serialization), schemars 1 (JSON Schema for tool params).
+**Key crates:** oxigraph 0.5.x (store + SPARQL), rmcp 0.16.x (MCP SDK), syn 2 (Rust AST parsing), sparesults 0.3 (SPARQL result serialization), schemars 1 (JSON Schema for tool params), serde_yaml 0.9 (Ansible YAML parsing).
 
 ## Test Patterns
 
