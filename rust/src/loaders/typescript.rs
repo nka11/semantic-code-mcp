@@ -414,11 +414,23 @@ fn extract_class_quads(
                     let field_uri = code_ns(&format!("{}/{name}/{field_name}", ctx.rel_path));
                     quads.push(qt(&field_uri, "Field"));
                     quads.push(q(&field_uri, "name", string_literal(&field_name)));
-                    quads.push(q(&class_uri, "hasField", Term::NamedNode(field_uri.clone())));
+                    quads.push(q(
+                        &class_uri,
+                        "hasField",
+                        Term::NamedNode(field_uri.clone()),
+                    ));
                     if let Some(ann) = &prop.type_annotation {
-                        quads.push(q(&field_uri, "fieldType", string_literal(&ts_type_to_string(ann))));
+                        quads.push(q(
+                            &field_uri,
+                            "fieldType",
+                            string_literal(&ts_type_to_string(ann)),
+                        ));
                     }
-                    quads.push(q(&field_uri, "optional", string_literal(if prop.optional { "true" } else { "false" })));
+                    quads.push(q(
+                        &field_uri,
+                        "optional",
+                        string_literal(if prop.optional { "true" } else { "false" }),
+                    ));
                     let f_start = offset_to_line(ctx.line_table, prop.span.start);
                     quads.push(q(&field_uri, "startLine", integer_literal(f_start as i64)));
                 }
@@ -482,9 +494,17 @@ fn extract_interface_quads(
                     quads.push(q(&field_uri, "name", string_literal(&field_name)));
                     quads.push(q(&uri, "hasField", Term::NamedNode(field_uri.clone())));
                     if let Some(ann) = &prop.type_annotation {
-                        quads.push(q(&field_uri, "fieldType", string_literal(&ts_type_to_string(ann))));
+                        quads.push(q(
+                            &field_uri,
+                            "fieldType",
+                            string_literal(&ts_type_to_string(ann)),
+                        ));
                     }
-                    quads.push(q(&field_uri, "optional", string_literal(if prop.optional { "true" } else { "false" })));
+                    quads.push(q(
+                        &field_uri,
+                        "optional",
+                        string_literal(if prop.optional { "true" } else { "false" }),
+                    ));
                     let f_start = offset_to_line(ctx.line_table, prop.span.start);
                     quads.push(q(&field_uri, "startLine", integer_literal(f_start as i64)));
                 }
@@ -590,10 +610,18 @@ fn extract_import_quads(import: &ImportDeclaration, module_uri: &NamedNode) -> V
         for spec in specifiers {
             match spec {
                 ImportDeclarationSpecifier::ImportSpecifier(s) => {
-                    quads.push(q(&import_uri, "importedSymbol", string_literal(&s.local.name)));
+                    quads.push(q(
+                        &import_uri,
+                        "importedSymbol",
+                        string_literal(&s.local.name),
+                    ));
                 }
                 ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
-                    quads.push(q(&import_uri, "importedSymbol", string_literal(&s.local.name)));
+                    quads.push(q(
+                        &import_uri,
+                        "importedSymbol",
+                        string_literal(&s.local.name),
+                    ));
                 }
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
                     quads.push(q(

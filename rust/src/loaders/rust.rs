@@ -203,7 +203,11 @@ fn extract_struct_quads(
                 quads.push(qt(&field_uri, "Field"));
                 quads.push(q(&field_uri, "name", string_literal(&field_name)));
                 quads.push(q(&uri, "hasField", Term::NamedNode(field_uri.clone())));
-                quads.push(q(&field_uri, "fieldType", string_literal(&type_to_string(&field.ty))));
+                quads.push(q(
+                    &field_uri,
+                    "fieldType",
+                    string_literal(&type_to_string(&field.ty)),
+                ));
                 let f_start = ident.span().start().line;
                 quads.push(q(&field_uri, "startLine", integer_literal(f_start as i64)));
                 let vis = visibility_str(&field.vis);

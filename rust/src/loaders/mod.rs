@@ -1,11 +1,11 @@
 pub mod rust;
 pub mod typescript;
 
+use ignore::WalkBuilder;
 use oxigraph::model::{GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term};
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
-use ignore::WalkBuilder;
 
 // --- Shared RDF helpers for code loaders ---
 

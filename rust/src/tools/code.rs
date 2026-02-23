@@ -99,9 +99,7 @@ pub fn load_code(
     }
 
     // Build summary
-    let mut summary = format!(
-        "Loaded {files_loaded} file(s), {quad_count} triples ({lang}).",
-    );
+    let mut summary = format!("Loaded {files_loaded} file(s), {quad_count} triples ({lang}).",);
 
     if !errors.is_empty() {
         summary.push_str(&format!(
@@ -114,19 +112,11 @@ pub fn load_code(
     CallToolResult::success(vec![rmcp::model::Content::text(summary)])
 }
 
-pub fn load_rust_code(
-    store: &Store,
-    registry: &LoaderRegistry,
-    path: &str,
-) -> CallToolResult {
+pub fn load_rust_code(store: &Store, registry: &LoaderRegistry, path: &str) -> CallToolResult {
     load_code(store, registry, path, Some("rust"))
 }
 
-pub fn load_ts_code(
-    store: &Store,
-    registry: &LoaderRegistry,
-    path: &str,
-) -> CallToolResult {
+pub fn load_ts_code(store: &Store, registry: &LoaderRegistry, path: &str) -> CallToolResult {
     load_code(store, registry, path, Some("typescript"))
 }
 
@@ -217,10 +207,7 @@ tokio = { version = "1", features = ["full"] }
             "SELECT ?path",
             r#"?p a code:Project ; code:name "test-project" ; code:hasModule ?mod . ?mod code:relativePath ?path ."#,
         );
-        assert!(
-            json.contains("src"),
-            "hasModule link not found: {json}"
-        );
+        assert!(json.contains("src"), "hasModule link not found: {json}");
     }
 
     #[test]
@@ -294,9 +281,18 @@ mod utils;
             "SELECT ?field ?ftype",
             r#"?s a code:Class ; code:name "Config" ; code:hasField ?f . ?f a code:Field ; code:name ?field ; code:fieldType ?ftype ."#,
         );
-        assert!(json.contains("host"), "Struct field 'host' not found: {json}");
-        assert!(json.contains("port"), "Struct field 'port' not found: {json}");
-        assert!(json.contains("String"), "Struct field type 'String' not found: {json}");
+        assert!(
+            json.contains("host"),
+            "Struct field 'host' not found: {json}"
+        );
+        assert!(
+            json.contains("port"),
+            "Struct field 'port' not found: {json}"
+        );
+        assert!(
+            json.contains("String"),
+            "Struct field type 'String' not found: {json}"
+        );
 
         // Enum
         let json = q(&store, "SELECT ?name", "?e a code:Enum ; code:name ?name .");
@@ -607,8 +603,14 @@ const helper = (x: number): number => x * 2;
         );
         assert!(json.contains("host"), "Field 'host' not found: {json}");
         assert!(json.contains("port"), "Field 'port' not found: {json}");
-        assert!(json.contains("string"), "Field type 'string' not found: {json}");
-        assert!(json.contains("number"), "Field type 'number' not found: {json}");
+        assert!(
+            json.contains("string"),
+            "Field type 'string' not found: {json}"
+        );
+        assert!(
+            json.contains("number"),
+            "Field type 'number' not found: {json}"
+        );
 
         // Class methods
         let json = q(
@@ -707,8 +709,14 @@ const helper = (x: number): number => x * 2;
             "SELECT ?sym",
             r#"?i a code:Import ; code:importPath "express" ; code:importedSymbol ?sym ."#,
         );
-        assert!(json.contains("Request"), "Import symbol 'Request' not found: {json}");
-        assert!(json.contains("Response"), "Import symbol 'Response' not found: {json}");
+        assert!(
+            json.contains("Request"),
+            "Import symbol 'Request' not found: {json}"
+        );
+        assert!(
+            json.contains("Response"),
+            "Import symbol 'Response' not found: {json}"
+        );
 
         // Arrow function
         let json = q(

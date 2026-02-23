@@ -142,12 +142,7 @@ impl OxigraphServer {
         let store = self.store.clone();
         let registry = self.registry.clone();
         tokio::task::spawn_blocking(move || {
-            tools::code::load_code(
-                &store,
-                &registry,
-                &params.path,
-                params.language.as_deref(),
-            )
+            tools::code::load_code(&store, &registry, &params.path, params.language.as_deref())
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
