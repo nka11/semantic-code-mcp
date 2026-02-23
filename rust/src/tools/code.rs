@@ -130,6 +130,15 @@ pub fn load_rust_code(
     load_code(store, registry, path, Some("rust"), graph)
 }
 
+pub fn load_ts_code(
+    store: &Store,
+    registry: &LoaderRegistry,
+    path: &str,
+    graph: Option<&str>,
+) -> CallToolResult {
+    load_code(store, registry, path, Some("typescript"), graph)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,5 +474,456 @@ mod utils;
         let result = load_rust_code(&store, &registry, "/nonexistent/path", None);
         assert!(is_error(&result));
         assert!(result_text(&result).contains("does not exist"));
+    }
+
+    // --- TypeScript loader tests ---
+
+    const TS_G: &str = "FROM <https://ds-labs.org/code#typescript>";
+
+    /// Helper: query from the code:typescript named graph
+    fn ts_q(store: &Store, select: &str, body: &str) -> String {
+        let sparql =
+            format!("PREFIX code: <https://ds-labs.org/code#>\n{select} {TS_G} WHERE {{ {body} }}");
+        query_results(store, &sparql)
+    }
+
+    #[test]
+    fn test_package_json_parsing() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{
+  "name": "my-app",
+  "version": "2.0.0",
+  "description": "A test app",
+  "dependencies": {
+    "express": "^4.18.0",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}"#,
+        )
+        .unwrap();
+        fs::write(dir.path().join("index.ts"), "export function main() {}").unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        assert!(
+            !is_error(&result),
+            "load_ts_code failed: {}",
+            result_text(&result)
+        );
+
+        // Project metadata
+        let json = ts_q(
+            &store,
+            "SELECT ?name ?version",
+            "?p a code:Project ; code:name ?name ; code:version ?version .",
+        );
+        assert!(json.contains("my-app"), "Project name not found: {json}");
+        assert!(json.contains("2.0.0"), "Version not found: {json}");
+
+        // Dependencies
+        let json = ts_q(
+            &store,
+            "SELECT ?name ?ver",
+            "?d a code:Dependency ; code:name ?name ; code:version ?ver .",
+        );
+        assert!(json.contains("express"), "express dep not found: {json}");
+        assert!(json.contains("lodash"), "lodash dep not found: {json}");
+        assert!(
+            json.contains("typescript"),
+            "typescript devDep not found: {json}"
+        );
+    }
+
+    #[test]
+    fn test_ts_ast_extraction() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{"name": "ast-test", "version": "1.0.0"}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::write(
+            dir.path().join("src/index.ts"),
+            r#"
+/** Greet someone */
+export function greet(name: string): string {
+    return `Hello, ${name}!`;
+}
+
+export class Config {
+    host: string;
+    port: number;
+
+    constructor(host: string, port: number) {
+        this.host = host;
+        this.port = port;
+    }
+
+    getUrl(): string {
+        return `${this.host}:${this.port}`;
+    }
+}
+
+export interface Handler {
+    handle(request: Request): Response;
+    name: string;
+}
+
+export type UserId = string | number;
+
+export enum Status {
+    Active,
+    Inactive,
+    Pending,
+}
+
+import { Request, Response } from 'express';
+
+const helper = (x: number): number => x * 2;
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        assert!(!is_error(&result), "Failed: {}", result_text(&result));
+
+        // Function
+        let json = ts_q(
+            &store,
+            "SELECT ?name ?vis",
+            r#"?f a code:Function ; code:name "greet" ; code:visibility ?vis ; code:name ?name ."#,
+        );
+        assert!(json.contains("greet"), "Function 'greet' not found: {json}");
+        assert!(
+            json.contains("export"),
+            "Export visibility not found: {json}"
+        );
+
+        // Class
+        let json = ts_q(
+            &store,
+            "SELECT ?name",
+            "?s a code:Class ; code:name ?name . FILTER NOT EXISTS { ?s code:kind ?k }",
+        );
+        assert!(json.contains("Config"), "Class 'Config' not found: {json}");
+
+        // Class fields
+        let json = ts_q(
+            &store,
+            "SELECT ?field",
+            r#"?c a code:Class ; code:name "Config" ; code:hasField ?field ."#,
+        );
+        assert!(json.contains("host"), "Field 'host' not found: {json}");
+        assert!(json.contains("port"), "Field 'port' not found: {json}");
+
+        // Class methods
+        let json = ts_q(
+            &store,
+            "SELECT ?method",
+            r#"?c a code:Class ; code:name "Config" ; code:hasFunction ?f . ?f code:name ?method ."#,
+        );
+        assert!(
+            json.contains("constructor"),
+            "Constructor not found: {json}"
+        );
+        assert!(json.contains("getUrl"), "Method 'getUrl' not found: {json}");
+
+        // Interface (mapped to Trait)
+        let json = ts_q(
+            &store,
+            "SELECT ?name",
+            "?t a code:Trait ; code:name ?name .",
+        );
+        assert!(
+            json.contains("Handler"),
+            "Interface 'Handler' not found: {json}"
+        );
+
+        // Interface methods
+        let json = ts_q(
+            &store,
+            "SELECT ?method",
+            r#"?t a code:Trait ; code:name "Handler" ; code:hasMethod ?method ."#,
+        );
+        assert!(
+            json.contains("handle"),
+            "Interface method 'handle' not found: {json}"
+        );
+
+        // Interface fields
+        let json = ts_q(
+            &store,
+            "SELECT ?field",
+            r#"?t a code:Trait ; code:name "Handler" ; code:hasField ?field ."#,
+        );
+        assert!(
+            json.contains("name"),
+            "Interface field 'name' not found: {json}"
+        );
+
+        // Type alias
+        let json = ts_q(
+            &store,
+            "SELECT ?name",
+            r#"?c a code:Class ; code:kind "type_alias" ; code:name ?name ."#,
+        );
+        assert!(
+            json.contains("UserId"),
+            "Type alias 'UserId' not found: {json}"
+        );
+
+        // Enum
+        let json = ts_q(&store, "SELECT ?name", "?e a code:Enum ; code:name ?name .");
+        assert!(json.contains("Status"), "Enum 'Status' not found: {json}");
+
+        // Enum variants
+        let json = ts_q(
+            &store,
+            "SELECT ?variant",
+            r#"?e a code:Enum ; code:name "Status" ; code:hasVariant ?variant ."#,
+        );
+        assert!(
+            json.contains("Active"),
+            "Variant 'Active' not found: {json}"
+        );
+        assert!(
+            json.contains("Inactive"),
+            "Variant 'Inactive' not found: {json}"
+        );
+        assert!(
+            json.contains("Pending"),
+            "Variant 'Pending' not found: {json}"
+        );
+
+        // Import
+        let json = ts_q(
+            &store,
+            "SELECT ?path",
+            "?i a code:Import ; code:importPath ?path .",
+        );
+        assert!(json.contains("express"), "Import not found: {json}");
+
+        // Arrow function
+        let json = ts_q(
+            &store,
+            "SELECT ?name",
+            r#"?f a code:Function ; code:name "helper" ; code:name ?name ."#,
+        );
+        assert!(
+            json.contains("helper"),
+            "Arrow function 'helper' not found: {json}"
+        );
+
+        // Docstring
+        let json = ts_q(
+            &store,
+            "SELECT ?doc",
+            r#"?f a code:Function ; code:name "greet" ; code:docstring ?doc ."#,
+        );
+        assert!(
+            json.contains("Greet someone"),
+            "Docstring not found: {json}"
+        );
+
+        // Return type
+        let json = ts_q(
+            &store,
+            "SELECT ?ret",
+            r#"?f a code:Function ; code:name "greet" ; code:returnType ?ret ."#,
+        );
+        assert!(json.contains("string"), "Return type not found: {json}");
+
+        // Parameters
+        let json = ts_q(
+            &store,
+            "SELECT ?param",
+            r#"?f a code:Function ; code:name "greet" ; code:parameter ?param ."#,
+        );
+        assert!(json.contains("name"), "Parameter 'name' not found: {json}");
+    }
+
+    #[test]
+    fn test_tsx_jsx_support() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("Component.tsx"),
+            r#"
+import React from 'react';
+
+interface Props {
+    title: string;
+}
+
+export function MyComponent(props: Props) {
+    return <div>{props.title}</div>;
+}
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_ts_code(
+            &store,
+            &registry,
+            dir.path().join("Component.tsx").to_str().unwrap(),
+            None,
+        );
+        assert!(
+            !is_error(&result),
+            "TSX parse failed: {}",
+            result_text(&result)
+        );
+
+        let json = ts_q(
+            &store,
+            "SELECT ?name",
+            "?f a code:Function ; code:name ?name .",
+        );
+        assert!(
+            json.contains("MyComponent"),
+            "TSX function not found: {json}"
+        );
+    }
+
+    #[test]
+    fn test_node_modules_ignored() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{"name": "ignore-test", "version": "1.0.0"}"#,
+        )
+        .unwrap();
+        fs::write(dir.path().join("index.ts"), "export function app() {}").unwrap();
+
+        // node_modules should be ignored
+        fs::create_dir_all(dir.path().join("node_modules/foo")).unwrap();
+        fs::write(
+            dir.path().join("node_modules/foo/index.ts"),
+            "export function internal() {}",
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        let text = result_text(&result);
+        assert!(!is_error(&result), "Failed: {text}");
+        assert!(
+            text.contains("1 file(s)"),
+            "Expected 1 file loaded (node_modules excluded): {text}"
+        );
+
+        let json = ts_q(
+            &store,
+            "SELECT ?path",
+            "?m a code:Module ; code:relativePath ?path .",
+        );
+        assert!(
+            !json.contains("node_modules"),
+            "node_modules should be ignored: {json}"
+        );
+    }
+
+    #[test]
+    fn test_auto_detection_typescript() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{"name": "detect-ts", "version": "1.0.0"}"#,
+        )
+        .unwrap();
+        fs::write(dir.path().join("index.ts"), "export function foo() {}").unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        // Use load_code without specifying language — should auto-detect typescript
+        let result = load_code(&store, &registry, dir.path().to_str().unwrap(), None, None);
+        assert!(
+            !is_error(&result),
+            "Auto-detect failed: {}",
+            result_text(&result)
+        );
+        assert!(
+            result_text(&result).contains("code:typescript"),
+            "Should detect typescript: {}",
+            result_text(&result)
+        );
+    }
+
+    #[test]
+    fn test_ts_class_implements_extends() {
+        let dir = TempDir::new().unwrap();
+        fs::write(
+            dir.path().join("models.ts"),
+            r#"
+interface Serializable {
+    serialize(): string;
+}
+
+interface Loggable {
+    log(): void;
+}
+
+class Base {
+    id: number;
+}
+
+export class User extends Base implements Serializable, Loggable {
+    name: string;
+
+    serialize(): string {
+        return JSON.stringify(this);
+    }
+
+    log(): void {
+        console.log(this.name);
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let store = Store::new().unwrap();
+        let registry = LoaderRegistry::default();
+        let result = load_ts_code(
+            &store,
+            &registry,
+            dir.path().join("models.ts").to_str().unwrap(),
+            None,
+        );
+        assert!(!is_error(&result), "Failed: {}", result_text(&result));
+
+        // Check implements
+        let json = ts_q(
+            &store,
+            "SELECT ?iface",
+            r#"?c a code:Class ; code:name "User" ; code:implements ?iface ."#,
+        );
+        assert!(
+            json.contains("Serializable"),
+            "implements Serializable not found: {json}"
+        );
+        assert!(
+            json.contains("Loggable"),
+            "implements Loggable not found: {json}"
+        );
+
+        // Check extends
+        let json = ts_q(
+            &store,
+            "SELECT ?parent",
+            r#"?c a code:Class ; code:name "User" ; code:extends ?parent ."#,
+        );
+        assert!(json.contains("Base"), "extends Base not found: {json}");
     }
 }

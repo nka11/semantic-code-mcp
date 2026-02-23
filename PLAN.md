@@ -41,10 +41,10 @@ Plugin system foundation plus the first code loader.
   - `.py` file AST extraction (modules, functions, classes, decorators, imports, docstrings)
 - Manual testing: load a Python project and query its structure via SPARQL
 
-### M4 — TypeScript Loader
+### M4 — TypeScript Loader ✅
 - Implement TypeScript loader (`load_ts_code`):
   - package.json parsing (metadata, dependencies)
-  - `.ts`/`.tsx`/`.js`/`.jsx` file AST extraction (modules, functions, classes, interfaces, imports/exports)
+  - `.ts`/`.tsx`/`.js`/`.jsx` file AST extraction via `oxc_parser` (modules, functions, classes, interfaces, type aliases, enums, imports/exports, JSDoc)
 - Manual testing: load a TypeScript project and query its structure via SPARQL
 
 ### M5 — Testing and Documentation

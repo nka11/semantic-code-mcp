@@ -2,7 +2,7 @@
 name = "semantic-code-mcp"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.76"
 license = "GPL-3.0-only"
 
 [dependencies]
@@ -20,6 +20,10 @@ proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"
 toml = "0.8"
 walkdir = "2"
+oxc_parser = "0.114"
+oxc_ast = "0.114"
+oxc_allocator = "0.114"
+oxc_span = "0.114"
 
 [dev-dependencies]
 tempfile = "3"

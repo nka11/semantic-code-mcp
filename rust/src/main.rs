@@ -1,3 +1,5 @@
+#![allow(clippy::vec_init_then_push)]
+
 mod loaders;
 mod store;
 mod tools;
@@ -42,7 +44,7 @@ struct LoadRdfParams {
 struct LoadCodeParams {
     /// Absolute path to a file or project directory
     path: String,
-    /// Language identifier. Currently supported: "rust". Default: auto-detect from project markers
+    /// Language identifier. Currently supported: "rust", "typescript". Default: auto-detect from project markers
     language: Option<String>,
     /// Target named graph URI. Default: code:<language>
     graph: Option<String>,
@@ -53,6 +55,14 @@ struct LoadRustCodeParams {
     /// Absolute path to a Rust file or Cargo project directory
     path: String,
     /// Target named graph URI. Default: code:rust
+    graph: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct LoadTsCodeParams {
+    /// Absolute path to a TypeScript/JavaScript file or project directory
+    path: String,
+    /// Target named graph URI. Default: code:typescript
     graph: Option<String>,
 }
 
@@ -129,7 +139,7 @@ impl OxigraphServer {
     }
 
     #[tool(
-        description = "Load source code into the RDF store by parsing project metadata and source files. Supports auto-detection of language from project markers (Cargo.toml). Currently supports Rust only. Produces RDF triples using the code: namespace (https://ds-labs.org/code#) with classes: Project, Module, Function, Class, Enum, Trait, Import, Dependency. Default graph: code:<language>."
+        description = "Load source code into the RDF store by parsing project metadata and source files. Supports auto-detection of language from project markers (Cargo.toml, package.json, tsconfig.json). Currently supports Rust and TypeScript/JavaScript. Produces RDF triples using the code: namespace (https://ds-labs.org/code#) with classes: Project, Module, Function, Class, Enum, Trait, Import, Dependency. Default graph: code:<language>."
     )]
     async fn load_code(
         &self,
@@ -161,6 +171,22 @@ impl OxigraphServer {
         let registry = self.registry.clone();
         tokio::task::spawn_blocking(move || {
             tools::code::load_rust_code(&store, &registry, &params.path, params.graph.as_deref())
+        })
+        .await
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
+        description = "Load TypeScript/JavaScript source code into the RDF store. Parses package.json for project metadata and .ts/.tsx/.js/.jsx files for functions, classes, interfaces, enums, type aliases, and imports. Produces RDF triples in the code: namespace (https://ds-labs.org/code#). Default graph: code:typescript. After loading, use sparql_query with default_graph=\"code:typescript\" to query. Classes: Project (name, version, language, hasDependency), Module (name, filePath, relativePath, hasFunction, hasImport), Function (name, visibility, parameter, returnType, startLine, endLine, definedIn, docstring), Class (name, visibility, hasField, hasFunction, implements, extends, startLine, endLine, definedIn, docstring), Trait (interfaces: name, visibility, hasMethod, hasField, extends, startLine, endLine, definedIn, docstring), Enum (name, visibility, hasVariant, startLine, endLine, definedIn), Import (importPath), Dependency (name, version). Entity URIs use relative paths: code:src/index.ts, code:src/index.ts/MyClass."
+    )]
+    async fn load_ts_code(
+        &self,
+        Parameters(params): Parameters<LoadTsCodeParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.store.clone();
+        let registry = self.registry.clone();
+        tokio::task::spawn_blocking(move || {
+            tools::code::load_ts_code(&store, &registry, &params.path, params.graph.as_deref())
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
