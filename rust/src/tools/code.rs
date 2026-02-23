@@ -11,7 +11,6 @@ pub fn load_code(
     registry: &LoaderRegistry,
     path: &str,
     language: Option<&str>,
-    graph: Option<&str>,
 ) -> CallToolResult {
     let path = std::path::Path::new(path);
     if !path.exists() {
@@ -74,31 +73,8 @@ pub fn load_code(
         }
     }
 
-    // If a custom graph was specified, remap all quads to that graph
-    let quads_to_insert = if let Some(graph_uri) = graph {
-        match oxigraph::model::NamedNode::new(graph_uri) {
-            Ok(g) => {
-                let graph_name = oxigraph::model::GraphName::NamedNode(g);
-                all_quads
-                    .into_iter()
-                    .map(|q| {
-                        oxigraph::model::Quad::new(
-                            q.subject,
-                            q.predicate,
-                            q.object,
-                            graph_name.clone(),
-                        )
-                    })
-                    .collect()
-            }
-            Err(_) => return tool_error(format!("Invalid graph URI: {graph_uri}")),
-        }
-    } else {
-        all_quads
-    };
-
-    let quad_count = quads_to_insert.len();
-    for quad in &quads_to_insert {
+    let quad_count = all_quads.len();
+    for quad in &all_quads {
         if let Err(e) = store.insert(quad) {
             return tool_error(format!("Store insert error: {e}"));
         }
@@ -106,8 +82,7 @@ pub fn load_code(
 
     // Build summary
     let mut summary = format!(
-        "Loaded {files_loaded} file(s), {quad_count} triples into graph '{}'.",
-        graph.unwrap_or(&format!("code:{lang}"))
+        "Loaded {files_loaded} file(s), {quad_count} triples ({lang}).",
     );
 
     if !errors.is_empty() {
@@ -125,18 +100,16 @@ pub fn load_rust_code(
     store: &Store,
     registry: &LoaderRegistry,
     path: &str,
-    graph: Option<&str>,
 ) -> CallToolResult {
-    load_code(store, registry, path, Some("rust"), graph)
+    load_code(store, registry, path, Some("rust"))
 }
 
 pub fn load_ts_code(
     store: &Store,
     registry: &LoaderRegistry,
     path: &str,
-    graph: Option<&str>,
 ) -> CallToolResult {
-    load_code(store, registry, path, Some("typescript"), graph)
+    load_code(store, registry, path, Some("typescript"))
 }
 
 #[cfg(test)]
@@ -145,8 +118,6 @@ mod tests {
     use crate::tools::sparql::sparql_query;
     use std::fs;
     use tempfile::TempDir;
-
-    const G: &str = "FROM <https://ds-labs.org/code#rust>";
 
     fn result_text(result: &CallToolResult) -> &str {
         match &result.content[0].raw {
@@ -165,10 +136,10 @@ mod tests {
         result_text(&result).to_string()
     }
 
-    /// Helper: query from the code:rust named graph
+    /// Helper: query from the default graph
     fn q(store: &Store, select: &str, body: &str) -> String {
         let sparql =
-            format!("PREFIX code: <https://ds-labs.org/code#>\n{select} {G} WHERE {{ {body} }}");
+            format!("PREFIX code: <https://ds-labs.org/code#>\n{select} WHERE {{ {body} }}");
         query_results(store, &sparql)
     }
 
@@ -195,7 +166,7 @@ tokio = { version = "1", features = ["full"] }
 
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_rust_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        let result = load_rust_code(&store, &registry, dir.path().to_str().unwrap());
         assert!(
             !is_error(&result),
             "load_rust_code failed: {}",
@@ -271,7 +242,7 @@ mod utils;
 
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_rust_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        let result = load_rust_code(&store, &registry, dir.path().to_str().unwrap());
         assert!(!is_error(&result), "Failed: {}", result_text(&result));
 
         // Function
@@ -373,7 +344,7 @@ mod utils;
 
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_rust_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        let result = load_rust_code(&store, &registry, dir.path().to_str().unwrap());
         let text = result_text(&result);
         assert!(!is_error(&result), "Failed: {text}");
         assert!(
@@ -405,14 +376,14 @@ mod utils;
 
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_code(&store, &registry, dir.path().to_str().unwrap(), None, None);
+        let result = load_code(&store, &registry, dir.path().to_str().unwrap(), None);
         assert!(
             !is_error(&result),
             "Auto-detect failed: {}",
             result_text(&result)
         );
         assert!(
-            result_text(&result).contains("code:rust"),
+            result_text(&result).contains("(rust)"),
             "Should detect rust: {}",
             result_text(&result)
         );
@@ -426,7 +397,7 @@ mod utils;
 
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_rust_code(&store, &registry, file.to_str().unwrap(), None);
+        let result = load_rust_code(&store, &registry, file.to_str().unwrap());
         assert!(!is_error(&result), "Failed: {}", result_text(&result));
         assert!(result_text(&result).contains("1 file(s)"));
 
@@ -439,53 +410,15 @@ mod utils;
     }
 
     #[test]
-    fn test_custom_graph() {
-        let dir = TempDir::new().unwrap();
-        let file = dir.path().join("custom.rs");
-        fs::write(&file, "pub fn custom_fn() {}").unwrap();
-
-        let store = Store::new().unwrap();
-        let registry = LoaderRegistry::default();
-        let result = load_rust_code(
-            &store,
-            &registry,
-            file.to_str().unwrap(),
-            Some("http://example.org/my-graph"),
-        );
-        assert!(!is_error(&result), "Failed: {}", result_text(&result));
-
-        let json = query_results(
-            &store,
-            r#"PREFIX code: <https://ds-labs.org/code#>
-            SELECT ?name FROM <http://example.org/my-graph> WHERE {
-                ?f a code:Function ; code:name ?name .
-            }"#,
-        );
-        assert!(
-            json.contains("custom_fn"),
-            "Function not in custom graph: {json}"
-        );
-    }
-
-    #[test]
     fn test_nonexistent_path() {
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_rust_code(&store, &registry, "/nonexistent/path", None);
+        let result = load_rust_code(&store, &registry, "/nonexistent/path");
         assert!(is_error(&result));
         assert!(result_text(&result).contains("does not exist"));
     }
 
     // --- TypeScript loader tests ---
-
-    const TS_G: &str = "FROM <https://ds-labs.org/code#typescript>";
-
-    /// Helper: query from the code:typescript named graph
-    fn ts_q(store: &Store, select: &str, body: &str) -> String {
-        let sparql =
-            format!("PREFIX code: <https://ds-labs.org/code#>\n{select} {TS_G} WHERE {{ {body} }}");
-        query_results(store, &sparql)
-    }
 
     #[test]
     fn test_package_json_parsing() {
@@ -510,7 +443,7 @@ mod utils;
 
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap());
         assert!(
             !is_error(&result),
             "load_ts_code failed: {}",
@@ -518,7 +451,7 @@ mod utils;
         );
 
         // Project metadata
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?name ?version",
             "?p a code:Project ; code:name ?name ; code:version ?version .",
@@ -527,7 +460,7 @@ mod utils;
         assert!(json.contains("2.0.0"), "Version not found: {json}");
 
         // Dependencies
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?name ?ver",
             "?d a code:Dependency ; code:name ?name ; code:version ?ver .",
@@ -593,11 +526,11 @@ const helper = (x: number): number => x * 2;
 
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap());
         assert!(!is_error(&result), "Failed: {}", result_text(&result));
 
         // Function
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?name ?vis",
             r#"?f a code:Function ; code:name "greet" ; code:visibility ?vis ; code:name ?name ."#,
@@ -609,7 +542,7 @@ const helper = (x: number): number => x * 2;
         );
 
         // Class
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?name",
             "?s a code:Class ; code:name ?name . FILTER NOT EXISTS { ?s code:kind ?k }",
@@ -617,7 +550,7 @@ const helper = (x: number): number => x * 2;
         assert!(json.contains("Config"), "Class 'Config' not found: {json}");
 
         // Class fields
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?field",
             r#"?c a code:Class ; code:name "Config" ; code:hasField ?field ."#,
@@ -626,7 +559,7 @@ const helper = (x: number): number => x * 2;
         assert!(json.contains("port"), "Field 'port' not found: {json}");
 
         // Class methods
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?method",
             r#"?c a code:Class ; code:name "Config" ; code:hasFunction ?f . ?f code:name ?method ."#,
@@ -638,7 +571,7 @@ const helper = (x: number): number => x * 2;
         assert!(json.contains("getUrl"), "Method 'getUrl' not found: {json}");
 
         // Interface (mapped to Trait)
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?name",
             "?t a code:Trait ; code:name ?name .",
@@ -649,7 +582,7 @@ const helper = (x: number): number => x * 2;
         );
 
         // Interface methods
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?method",
             r#"?t a code:Trait ; code:name "Handler" ; code:hasMethod ?method ."#,
@@ -660,7 +593,7 @@ const helper = (x: number): number => x * 2;
         );
 
         // Interface fields
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?field",
             r#"?t a code:Trait ; code:name "Handler" ; code:hasField ?field ."#,
@@ -671,7 +604,7 @@ const helper = (x: number): number => x * 2;
         );
 
         // Type alias
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?name",
             r#"?c a code:Class ; code:kind "type_alias" ; code:name ?name ."#,
@@ -682,11 +615,11 @@ const helper = (x: number): number => x * 2;
         );
 
         // Enum
-        let json = ts_q(&store, "SELECT ?name", "?e a code:Enum ; code:name ?name .");
+        let json = q(&store, "SELECT ?name", "?e a code:Enum ; code:name ?name .");
         assert!(json.contains("Status"), "Enum 'Status' not found: {json}");
 
         // Enum variants
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?variant",
             r#"?e a code:Enum ; code:name "Status" ; code:hasVariant ?variant ."#,
@@ -705,7 +638,7 @@ const helper = (x: number): number => x * 2;
         );
 
         // Import
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?path",
             "?i a code:Import ; code:importPath ?path .",
@@ -713,7 +646,7 @@ const helper = (x: number): number => x * 2;
         assert!(json.contains("express"), "Import not found: {json}");
 
         // Arrow function
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?name",
             r#"?f a code:Function ; code:name "helper" ; code:name ?name ."#,
@@ -724,7 +657,7 @@ const helper = (x: number): number => x * 2;
         );
 
         // Docstring
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?doc",
             r#"?f a code:Function ; code:name "greet" ; code:docstring ?doc ."#,
@@ -735,7 +668,7 @@ const helper = (x: number): number => x * 2;
         );
 
         // Return type
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?ret",
             r#"?f a code:Function ; code:name "greet" ; code:returnType ?ret ."#,
@@ -743,7 +676,7 @@ const helper = (x: number): number => x * 2;
         assert!(json.contains("string"), "Return type not found: {json}");
 
         // Parameters
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?param",
             r#"?f a code:Function ; code:name "greet" ; code:parameter ?param ."#,
@@ -776,7 +709,6 @@ export function MyComponent(props: Props) {
             &store,
             &registry,
             dir.path().join("Component.tsx").to_str().unwrap(),
-            None,
         );
         assert!(
             !is_error(&result),
@@ -784,7 +716,7 @@ export function MyComponent(props: Props) {
             result_text(&result)
         );
 
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?name",
             "?f a code:Function ; code:name ?name .",
@@ -815,7 +747,7 @@ export function MyComponent(props: Props) {
 
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
-        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap(), None);
+        let result = load_ts_code(&store, &registry, dir.path().to_str().unwrap());
         let text = result_text(&result);
         assert!(!is_error(&result), "Failed: {text}");
         assert!(
@@ -823,7 +755,7 @@ export function MyComponent(props: Props) {
             "Expected 1 file loaded (node_modules excluded): {text}"
         );
 
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?path",
             "?m a code:Module ; code:relativePath ?path .",
@@ -847,14 +779,14 @@ export function MyComponent(props: Props) {
         let store = Store::new().unwrap();
         let registry = LoaderRegistry::default();
         // Use load_code without specifying language — should auto-detect typescript
-        let result = load_code(&store, &registry, dir.path().to_str().unwrap(), None, None);
+        let result = load_code(&store, &registry, dir.path().to_str().unwrap(), None);
         assert!(
             !is_error(&result),
             "Auto-detect failed: {}",
             result_text(&result)
         );
         assert!(
-            result_text(&result).contains("code:typescript"),
+            result_text(&result).contains("(typescript)"),
             "Should detect typescript: {}",
             result_text(&result)
         );
@@ -899,12 +831,11 @@ export class User extends Base implements Serializable, Loggable {
             &store,
             &registry,
             dir.path().join("models.ts").to_str().unwrap(),
-            None,
         );
         assert!(!is_error(&result), "Failed: {}", result_text(&result));
 
         // Check implements
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?iface",
             r#"?c a code:Class ; code:name "User" ; code:implements ?iface ."#,
@@ -919,7 +850,7 @@ export class User extends Base implements Serializable, Loggable {
         );
 
         // Check extends
-        let json = ts_q(
+        let json = q(
             &store,
             "SELECT ?parent",
             r#"?c a code:Class ; code:name "User" ; code:extends ?parent ."#,
