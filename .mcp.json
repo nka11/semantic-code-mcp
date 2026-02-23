@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "semantic-code-mcp": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "./rust/Cargo.toml"]
+    }
+  }
+}
