@@ -1,3 +1,4 @@
+pub mod ansible;
 pub mod git;
 pub mod rust;
 pub mod typescript;

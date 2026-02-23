@@ -70,6 +70,20 @@ struct LoadGitHistoryParams {
     branch: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct LoadInventoryParams {
+    /// Path to an Ansible inventory file (INI or YAML) or inventory directory
+    path: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct LoadAnsibleParams {
+    /// Path to an Ansible project directory
+    path: String,
+    /// Optional path to the inventory file or directory. Default: auto-detect (inventory/, hosts, etc.)
+    inventory_path: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct OxigraphServer {
     store: Arc<Store>,
@@ -205,6 +219,34 @@ impl OxigraphServer {
                 params.max_commits,
                 params.branch.as_deref(),
             )
+        })
+        .await
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
+        description = "Load an Ansible inventory into the RDF store. Parses INI or YAML inventory files, host_vars/ and group_vars/ directories. Produces RDF triples using host: namespace (http://www.invincea.com/ontologies/icas/1.0/host#) for hosts and ans: namespace (https://ds-labs.org/ansible#) for groups and variables. All triples stored in the default graph. After loading, use sparql_query with PREFIX ans: <https://ds-labs.org/ansible#> PREFIX host: <http://www.invincea.com/ontologies/icas/1.0/host#>. Classes: host:Host (hostName, ansibleHost), ans:HostGroup (name, hasHost, childGroup), ans:Variable (variableName, variableValue). Hosts link to groups via ans:memberOf. Host URIs: ans:host/<hostname>. Group URIs: ans:group/<name>."
+    )]
+    async fn load_inventory(
+        &self,
+        Parameters(params): Parameters<LoadInventoryParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.store.clone();
+        tokio::task::spawn_blocking(move || tools::ansible::load_inventory(&store, &params.path))
+            .await
+            .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
+        description = "Load a full Ansible project into the RDF store — inventory, playbooks, roles, tasks, handlers, and templates. Parses the entire project directory structure. Produces RDF triples using host: namespace for hosts and ans: namespace for Ansible-specific entities. All triples stored in the default graph. After loading, use sparql_query with PREFIX ans: <https://ds-labs.org/ansible#> PREFIX host: <http://www.invincea.com/ontologies/icas/1.0/host#>. Classes: host:Host, ans:HostGroup, ans:Variable, ans:Playbook (name, sourceFile, hasPlay), ans:Play (name, targetHosts, hasTask, usesRole), ans:Task (name, module, sourceFile), ans:Role (name, dependsOn, hasTask, hasHandler, hasTemplate), ans:Handler (name, module), ans:Template (name, sourceFile). Entity URIs: ans:playbook/<path>, ans:play/<path>/<idx>, ans:task/<path>/<play_idx>/<task_idx>, ans:role/<name>, ans:handler/<ctx>/<slug>."
+    )]
+    async fn load_ansible(
+        &self,
+        Parameters(params): Parameters<LoadAnsibleParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.store.clone();
+        tokio::task::spawn_blocking(move || {
+            tools::ansible::load_ansible(&store, &params.path, params.inventory_path.as_deref())
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
