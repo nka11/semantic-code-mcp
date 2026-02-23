@@ -57,17 +57,17 @@
   - [ ] Register `load_python_code` tool
 - [ ] Manual test: load a Python project and query its structure via SPARQL
 
-## M4 — TypeScript Loader
+## M4 — TypeScript Loader ✅
 
-- [ ] Implement `rust/src/loaders/typescript.rs` — TypeScript loader:
-  - [ ] package.json parsing for project metadata and dependencies
-  - [ ] `.ts`/`.tsx`/`.js`/`.jsx` file AST extraction (Rust-based parser):
-    - [ ] Modules and exports
-    - [ ] Functions (name, params, return type, JSDoc)
-    - [ ] Classes and interfaces
-    - [ ] Type aliases
-    - [ ] Import/export statements
-  - [ ] Register `load_ts_code` tool
+- [x] Implement `rust/src/loaders/typescript.rs` — TypeScript loader:
+  - [x] package.json parsing for project metadata and dependencies
+  - [x] `.ts`/`.tsx`/`.js`/`.jsx` file AST extraction (oxc_parser):
+    - [x] Modules and exports
+    - [x] Functions (name, params, return type, JSDoc)
+    - [x] Classes and interfaces
+    - [x] Type aliases
+    - [x] Import/export statements
+  - [x] Register `load_ts_code` tool
 - [ ] Manual test: load a TypeScript project and query its structure via SPARQL
 
 ## M5 — Testing and Documentation
@@ -75,7 +75,7 @@
 - [x] Integration tests for generic RDF tools (sparql_query, sparql_update, load_rdf, list_graphs)
 - [x] Integration tests for Rust loader
 - [ ] Integration tests for Python loader
-- [ ] Integration tests for TypeScript loader
+- [x] Integration tests for TypeScript loader
 - [x] Write README.md with installation and usage instructions
 - [x] Add Claude Code MCP configuration examples
 

@@ -1,75 +1,20 @@
-use super::{LanguageLoader, LoadError};
-use oxigraph::model::{GraphName, Literal, NamedNode, NamedOrBlankNode, Quad, Term};
+use super::{code_ns, integer_literal, quad, quad_type, string_literal, LanguageLoader, LoadError};
+use oxigraph::model::{GraphName, NamedNode, Quad, Term};
 use quote::ToTokens;
 use std::path::Path;
 
-const CODE_NS: &str = "https://ds-labs.org/code#";
-const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-
 pub struct RustLoader;
-
-// --- RDF helper functions ---
-
-/// Percent-encode characters that are invalid in IRIs.
-fn sanitize_iri_local(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '<' => out.push_str("%3C"),
-            '>' => out.push_str("%3E"),
-            '{' => out.push_str("%7B"),
-            '}' => out.push_str("%7D"),
-            ' ' => out.push_str("%20"),
-            '"' => out.push_str("%22"),
-            '|' => out.push_str("%7C"),
-            '\\' => out.push_str("%5C"),
-            '^' => out.push_str("%5E"),
-            '`' => out.push_str("%60"),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
-fn code_ns(local: &str) -> NamedNode {
-    NamedNode::new(format!("{CODE_NS}{}", sanitize_iri_local(local))).unwrap()
-}
-
-fn rdf_type() -> NamedNode {
-    NamedNode::new(RDF_TYPE).unwrap()
-}
-
-fn string_literal(value: &str) -> Term {
-    Term::Literal(Literal::new_simple_literal(value))
-}
-
-fn integer_literal(value: i64) -> Term {
-    Term::Literal(Literal::new_typed_literal(
-        value.to_string(),
-        NamedNode::new("http://www.w3.org/2001/XMLSchema#integer").unwrap(),
-    ))
-}
 
 fn default_graph() -> GraphName {
     GraphName::NamedNode(code_ns("rust"))
 }
 
-fn quad(subject: &NamedNode, predicate: &str, object: Term) -> Quad {
-    Quad::new(
-        NamedOrBlankNode::NamedNode(subject.clone()),
-        code_ns(predicate),
-        object,
-        default_graph(),
-    )
+fn q(subject: &NamedNode, predicate: &str, object: Term) -> Quad {
+    quad(subject, predicate, object, default_graph())
 }
 
-fn quad_type(subject: &NamedNode, class: &str) -> Quad {
-    Quad::new(
-        NamedOrBlankNode::NamedNode(subject.clone()),
-        rdf_type(),
-        Term::NamedNode(code_ns(class)),
-        default_graph(),
-    )
+fn qt(subject: &NamedNode, class: &str) -> Quad {
+    quad_type(subject, class, default_graph())
 }
 
 // --- Cargo.toml parsing ---
@@ -94,26 +39,26 @@ fn parse_cargo_toml(project_root: &Path) -> Result<Vec<Quad>, LoadError> {
             .unwrap_or("unknown");
         let project_uri = code_ns(&format!("project/{name}"));
 
-        quads.push(quad_type(&project_uri, "Project"));
-        quads.push(quad(&project_uri, "name", string_literal(name)));
+        quads.push(qt(&project_uri, "Project"));
+        quads.push(q(&project_uri, "name", string_literal(name)));
 
         if let Some(version) = pkg.get("version").and_then(|v| v.as_str()) {
-            quads.push(quad(&project_uri, "version", string_literal(version)));
+            quads.push(q(&project_uri, "version", string_literal(version)));
         }
         if let Some(desc) = pkg.get("description").and_then(|v| v.as_str()) {
-            quads.push(quad(&project_uri, "description", string_literal(desc)));
+            quads.push(q(&project_uri, "description", string_literal(desc)));
         }
         if let Some(edition) = pkg.get("edition").and_then(|v| v.as_str()) {
-            quads.push(quad(&project_uri, "edition", string_literal(edition)));
+            quads.push(q(&project_uri, "edition", string_literal(edition)));
         }
 
         // Dependencies
         if let Some(deps) = table.get("dependencies").and_then(|v| v.as_table()) {
             for (dep_name, dep_val) in deps {
                 let dep_uri = code_ns(&format!("project/{name}/dep/{dep_name}"));
-                quads.push(quad_type(&dep_uri, "Dependency"));
-                quads.push(quad(&dep_uri, "name", string_literal(dep_name)));
-                quads.push(quad(
+                quads.push(qt(&dep_uri, "Dependency"));
+                quads.push(q(&dep_uri, "name", string_literal(dep_name)));
+                quads.push(q(
                     &project_uri,
                     "hasDependency",
                     Term::NamedNode(dep_uri.clone()),
@@ -127,7 +72,7 @@ fn parse_cargo_toml(project_root: &Path) -> Result<Vec<Quad>, LoadError> {
                     _ => None,
                 };
                 if let Some(ver) = version_str {
-                    quads.push(quad(&dep_uri, "version", string_literal(&ver)));
+                    quads.push(q(&dep_uri, "version", string_literal(&ver)));
                 }
             }
         }
@@ -183,51 +128,43 @@ fn return_type_string(output: &syn::ReturnType) -> Option<String> {
     }
 }
 
-fn extract_fn_quads(
-    func: &syn::ItemFn,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_fn_quads(func: &syn::ItemFn, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let name = func.sig.ident.to_string();
     let fn_uri = code_ns(&format!("{rel_path}/{name}"));
     let mut quads = Vec::new();
 
-    quads.push(quad_type(&fn_uri, "Function"));
-    quads.push(quad(&fn_uri, "name", string_literal(&name)));
-    quads.push(quad(
-        &fn_uri,
-        "definedIn",
-        Term::NamedNode(module_uri.clone()),
-    ));
-    quads.push(quad(
+    quads.push(qt(&fn_uri, "Function"));
+    quads.push(q(&fn_uri, "name", string_literal(&name)));
+    quads.push(q(&fn_uri, "definedIn", Term::NamedNode(module_uri.clone())));
+    quads.push(q(
         &fn_uri,
         "visibility",
         string_literal(visibility_str(&func.vis)),
     ));
 
     let start = func.sig.ident.span().start().line;
-    quads.push(quad(&fn_uri, "startLine", integer_literal(start as i64)));
+    quads.push(q(&fn_uri, "startLine", integer_literal(start as i64)));
     let end = func.block.brace_token.span.close().start().line;
-    quads.push(quad(&fn_uri, "endLine", integer_literal(end as i64)));
+    quads.push(q(&fn_uri, "endLine", integer_literal(end as i64)));
 
     for param in &func.sig.inputs {
         match param {
             syn::FnArg::Receiver(_) => {
-                quads.push(quad(&fn_uri, "parameter", string_literal("self")));
+                quads.push(q(&fn_uri, "parameter", string_literal("self")));
             }
             syn::FnArg::Typed(pat_type) => {
                 let param_name = pat_type.pat.to_token_stream().to_string();
-                quads.push(quad(&fn_uri, "parameter", string_literal(&param_name)));
+                quads.push(q(&fn_uri, "parameter", string_literal(&param_name)));
             }
         }
     }
 
     if let Some(ret) = return_type_string(&func.sig.output) {
-        quads.push(quad(&fn_uri, "returnType", string_literal(&ret)));
+        quads.push(q(&fn_uri, "returnType", string_literal(&ret)));
     }
 
     if let Some(doc) = extract_docstring(&func.attrs) {
-        quads.push(quad(&fn_uri, "docstring", string_literal(&doc)));
+        quads.push(q(&fn_uri, "docstring", string_literal(&doc)));
     }
 
     quads
@@ -242,68 +179,56 @@ fn extract_struct_quads(
     let uri = code_ns(&format!("{rel_path}/{name}"));
     let mut quads = Vec::new();
 
-    quads.push(quad_type(&uri, "Class"));
-    quads.push(quad(&uri, "name", string_literal(&name)));
-    quads.push(quad(
-        &uri,
-        "definedIn",
-        Term::NamedNode(module_uri.clone()),
-    ));
-    quads.push(quad(
+    quads.push(qt(&uri, "Class"));
+    quads.push(q(&uri, "name", string_literal(&name)));
+    quads.push(q(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
+    quads.push(q(
         &uri,
         "visibility",
         string_literal(visibility_str(&item.vis)),
     ));
 
     let start = item.ident.span().start().line;
-    quads.push(quad(&uri, "startLine", integer_literal(start as i64)));
+    quads.push(q(&uri, "startLine", integer_literal(start as i64)));
 
     if let syn::Fields::Named(fields) = &item.fields {
         if let Some(last) = fields.named.last() {
             let end = last.ident.as_ref().map_or(start, |i| i.span().start().line);
-            quads.push(quad(&uri, "endLine", integer_literal(end as i64 + 1)));
+            quads.push(q(&uri, "endLine", integer_literal(end as i64 + 1)));
         }
         for field in &fields.named {
             if let Some(ident) = &field.ident {
-                quads.push(quad(&uri, "hasField", string_literal(&ident.to_string())));
+                quads.push(q(&uri, "hasField", string_literal(&ident.to_string())));
             }
         }
     }
 
     if let Some(doc) = extract_docstring(&item.attrs) {
-        quads.push(quad(&uri, "docstring", string_literal(&doc)));
+        quads.push(q(&uri, "docstring", string_literal(&doc)));
     }
 
     quads
 }
 
-fn extract_enum_quads(
-    item: &syn::ItemEnum,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_enum_quads(item: &syn::ItemEnum, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let name = item.ident.to_string();
     let uri = code_ns(&format!("{rel_path}/{name}"));
     let mut quads = Vec::new();
 
-    quads.push(quad_type(&uri, "Enum"));
-    quads.push(quad(&uri, "name", string_literal(&name)));
-    quads.push(quad(
-        &uri,
-        "definedIn",
-        Term::NamedNode(module_uri.clone()),
-    ));
-    quads.push(quad(
+    quads.push(qt(&uri, "Enum"));
+    quads.push(q(&uri, "name", string_literal(&name)));
+    quads.push(q(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
+    quads.push(q(
         &uri,
         "visibility",
         string_literal(visibility_str(&item.vis)),
     ));
 
     let start = item.ident.span().start().line;
-    quads.push(quad(&uri, "startLine", integer_literal(start as i64)));
+    quads.push(q(&uri, "startLine", integer_literal(start as i64)));
 
     for variant in &item.variants {
-        quads.push(quad(
+        quads.push(q(
             &uri,
             "hasVariant",
             string_literal(&variant.ident.to_string()),
@@ -312,60 +237,48 @@ fn extract_enum_quads(
 
     if let Some(last) = item.variants.last() {
         let end = last.ident.span().start().line;
-        quads.push(quad(&uri, "endLine", integer_literal(end as i64 + 1)));
+        quads.push(q(&uri, "endLine", integer_literal(end as i64 + 1)));
     }
 
     if let Some(doc) = extract_docstring(&item.attrs) {
-        quads.push(quad(&uri, "docstring", string_literal(&doc)));
+        quads.push(q(&uri, "docstring", string_literal(&doc)));
     }
 
     quads
 }
 
-fn extract_trait_quads(
-    item: &syn::ItemTrait,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_trait_quads(item: &syn::ItemTrait, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let name = item.ident.to_string();
     let uri = code_ns(&format!("{rel_path}/{name}"));
     let mut quads = Vec::new();
 
-    quads.push(quad_type(&uri, "Trait"));
-    quads.push(quad(&uri, "name", string_literal(&name)));
-    quads.push(quad(
-        &uri,
-        "definedIn",
-        Term::NamedNode(module_uri.clone()),
-    ));
-    quads.push(quad(
+    quads.push(qt(&uri, "Trait"));
+    quads.push(q(&uri, "name", string_literal(&name)));
+    quads.push(q(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
+    quads.push(q(
         &uri,
         "visibility",
         string_literal(visibility_str(&item.vis)),
     ));
 
     let start = item.ident.span().start().line;
-    quads.push(quad(&uri, "startLine", integer_literal(start as i64)));
+    quads.push(q(&uri, "startLine", integer_literal(start as i64)));
 
     for trait_item in &item.items {
         if let syn::TraitItem::Fn(method) = trait_item {
             let method_name = method.sig.ident.to_string();
-            quads.push(quad(&uri, "hasMethod", string_literal(&method_name)));
+            quads.push(q(&uri, "hasMethod", string_literal(&method_name)));
         }
     }
 
     if let Some(doc) = extract_docstring(&item.attrs) {
-        quads.push(quad(&uri, "docstring", string_literal(&doc)));
+        quads.push(q(&uri, "docstring", string_literal(&doc)));
     }
 
     quads
 }
 
-fn extract_impl_quads(
-    item: &syn::ItemImpl,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_impl_quads(item: &syn::ItemImpl, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let mut quads = Vec::new();
 
     let type_name = type_to_string(&item.self_ty);
@@ -379,7 +292,7 @@ fn extract_impl_quads(
 
     if let Some((_, trait_path, _)) = &item.trait_ {
         let trait_name = trait_path.to_token_stream().to_string();
-        quads.push(quad(&type_uri, "implements", string_literal(&trait_name)));
+        quads.push(q(&type_uri, "implements", string_literal(&trait_name)));
     }
 
     for impl_item in &item.items {
@@ -387,47 +300,39 @@ fn extract_impl_quads(
             let method_name = method.sig.ident.to_string();
             let fn_uri = code_ns(&format!("{rel_path}/{type_local}/{method_name}"));
 
-            quads.push(quad_type(&fn_uri, "Function"));
-            quads.push(quad(&fn_uri, "name", string_literal(&method_name)));
-            quads.push(quad(
-                &fn_uri,
-                "definedIn",
-                Term::NamedNode(module_uri.clone()),
-            ));
-            quads.push(quad(
+            quads.push(qt(&fn_uri, "Function"));
+            quads.push(q(&fn_uri, "name", string_literal(&method_name)));
+            quads.push(q(&fn_uri, "definedIn", Term::NamedNode(module_uri.clone())));
+            quads.push(q(
                 &fn_uri,
                 "visibility",
                 string_literal(visibility_str(&method.vis)),
             ));
-            quads.push(quad(
-                &type_uri,
-                "hasFunction",
-                Term::NamedNode(fn_uri.clone()),
-            ));
+            quads.push(q(&type_uri, "hasFunction", Term::NamedNode(fn_uri.clone())));
 
             let start = method.sig.ident.span().start().line;
-            quads.push(quad(&fn_uri, "startLine", integer_literal(start as i64)));
+            quads.push(q(&fn_uri, "startLine", integer_literal(start as i64)));
             let end = method.block.brace_token.span.close().start().line;
-            quads.push(quad(&fn_uri, "endLine", integer_literal(end as i64)));
+            quads.push(q(&fn_uri, "endLine", integer_literal(end as i64)));
 
             for param in &method.sig.inputs {
                 match param {
                     syn::FnArg::Receiver(_) => {
-                        quads.push(quad(&fn_uri, "parameter", string_literal("self")));
+                        quads.push(q(&fn_uri, "parameter", string_literal("self")));
                     }
                     syn::FnArg::Typed(pat_type) => {
                         let param_name = pat_type.pat.to_token_stream().to_string();
-                        quads.push(quad(&fn_uri, "parameter", string_literal(&param_name)));
+                        quads.push(q(&fn_uri, "parameter", string_literal(&param_name)));
                     }
                 }
             }
 
             if let Some(ret) = return_type_string(&method.sig.output) {
-                quads.push(quad(&fn_uri, "returnType", string_literal(&ret)));
+                quads.push(q(&fn_uri, "returnType", string_literal(&ret)));
             }
 
             if let Some(doc) = extract_docstring(&method.attrs) {
-                quads.push(quad(&fn_uri, "docstring", string_literal(&doc)));
+                quads.push(q(&fn_uri, "docstring", string_literal(&doc)));
             }
         }
     }
@@ -442,34 +347,22 @@ fn extract_use_quads(item: &syn::ItemUse, module_uri: &NamedNode) -> Vec<Quad> {
         import_path.replace("::", "/").replace(' ', "")
     ));
     vec![
-        quad_type(&import_uri, "Import"),
-        quad(&import_uri, "importPath", string_literal(&import_path)),
-        quad(
-            module_uri,
-            "hasImport",
-            Term::NamedNode(import_uri),
-        ),
+        qt(&import_uri, "Import"),
+        q(&import_uri, "importPath", string_literal(&import_path)),
+        q(module_uri, "hasImport", Term::NamedNode(import_uri)),
     ]
 }
 
-fn extract_mod_quads(
-    item: &syn::ItemMod,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_mod_quads(item: &syn::ItemMod, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let name = item.ident.to_string();
     if item.content.is_some() {
         return vec![];
     }
     let mod_uri = code_ns(&format!("{rel_path}/{name}"));
     vec![
-        quad_type(&mod_uri, "Module"),
-        quad(&mod_uri, "name", string_literal(&name)),
-        quad(
-            module_uri,
-            "hasModule",
-            Term::NamedNode(mod_uri),
-        ),
+        qt(&mod_uri, "Module"),
+        q(&mod_uri, "name", string_literal(&name)),
+        q(module_uri, "hasModule", Term::NamedNode(mod_uri)),
     ]
 }
 
@@ -490,29 +383,21 @@ fn parse_rs_file(path: &Path, project_root: &Path) -> Result<Vec<Quad>, LoadErro
     let module_uri = code_ns(&rel_path);
     let mut quads = Vec::new();
 
-    quads.push(quad_type(&module_uri, "Module"));
-    quads.push(quad(
+    quads.push(qt(&module_uri, "Module"));
+    quads.push(q(
         &module_uri,
         "filePath",
         string_literal(&path.to_string_lossy()),
     ));
-    quads.push(quad(
-        &module_uri,
-        "relativePath",
-        string_literal(&rel_path),
-    ));
-    quads.push(quad(&module_uri, "language", string_literal("rust")));
+    quads.push(q(&module_uri, "relativePath", string_literal(&rel_path)));
+    quads.push(q(&module_uri, "language", string_literal("rust")));
 
     for item in &syntax.items {
         match item {
             syn::Item::Fn(f) => quads.extend(extract_fn_quads(f, &module_uri, &rel_path)),
-            syn::Item::Struct(s) => {
-                quads.extend(extract_struct_quads(s, &module_uri, &rel_path))
-            }
+            syn::Item::Struct(s) => quads.extend(extract_struct_quads(s, &module_uri, &rel_path)),
             syn::Item::Enum(e) => quads.extend(extract_enum_quads(e, &module_uri, &rel_path)),
-            syn::Item::Trait(t) => {
-                quads.extend(extract_trait_quads(t, &module_uri, &rel_path))
-            }
+            syn::Item::Trait(t) => quads.extend(extract_trait_quads(t, &module_uri, &rel_path)),
             syn::Item::Impl(i) => quads.extend(extract_impl_quads(i, &module_uri, &rel_path)),
             syn::Item::Use(u) => quads.extend(extract_use_quads(u, &module_uri)),
             syn::Item::Mod(m) => quads.extend(extract_mod_quads(m, &module_uri, &rel_path)),
