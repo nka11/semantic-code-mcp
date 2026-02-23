@@ -53,10 +53,24 @@ Plugin system foundation plus the first code loader.
 - User-facing README with installation and usage instructions
 - Claude Code MCP configuration examples
 
-### M6 — Advanced Features
-- Named graph management tools
-- RDF format conversion tool
-- Store statistics / introspection tool
-- Namespace prefix management
+### M6 — Git History Loader
+Load git commit history into the RDF knowledge graph, enabling queries that join code structure with change history.
+
+- Add `git2` crate (libgit2 bindings) for native repository access
+- Implement git history loader in `loaders/git.rs`:
+  - Walk commit graph from HEAD or specified branch
+  - Extract commit metadata (hash, author, committer, date, message, parents)
+  - Extract per-commit file diffs (added, modified, deleted, renamed)
+  - Generate `code:Commit` and `code:FileChange` RDF triples
+  - Cross-graph linking: `code:FileChange` → `code:Module` via `code:affectsModule`
+- Implement `load_git_history` tool in `tools/git.rs`
+- Default named graph: `code:git`
+- Unit tests with temporary git repositories
+- Manual testing: load history and run cross-graph SPARQL queries
+
+### M7 — Advanced Features
+- Named graph management tools (`drop_graph`, `export_rdf`)
+- Store statistics / introspection tool (`store_stats`)
+- Namespace prefix management (`list_namespaces`, `add_namespace`)
 - Bulk loading with progress reporting
-- Additional language loaders via the plugin system
+- Additional language loaders (Go, Java, C/C++, etc.)

@@ -79,7 +79,30 @@
 - [x] Write README.md with installation and usage instructions
 - [x] Add Claude Code MCP configuration examples
 
-## M6 — Advanced Features
+## M6 — Git History Loader
+
+- [ ] Add `git2` crate dependency to `rust/Cargo.toml`
+- [ ] Implement `rust/src/loaders/git.rs` — Git history loader:
+  - [ ] Open repository via `git2::Repository::open()`
+  - [ ] Walk commit graph from HEAD (or specified branch/ref)
+  - [ ] Extract commit metadata (hash, author, committer, date, message, parents)
+  - [ ] Extract per-commit file changes via diff-tree (added, modified, deleted, renamed)
+  - [ ] Generate `code:Commit` and `code:FileChange` RDF triples
+  - [ ] Link `code:FileChange` to `code:Module` via `code:affectsModule` (cross-graph linking)
+  - [ ] Respect `max_commits` limit
+- [ ] Implement `rust/src/tools/git.rs` — `load_git_history` tool:
+  - [ ] Tool parameter schema (path, graph, max_commits, branch)
+  - [ ] Pure sync function taking `&Store`
+  - [ ] Summary output (commit count, file change count)
+- [ ] Register `load_git_history` tool in `main.rs`
+- [ ] Unit tests:
+  - [ ] Test commit metadata extraction with a temp git repo
+  - [ ] Test file change detection (add, modify, delete, rename)
+  - [ ] Test max_commits limiting
+  - [ ] Test cross-graph module linking
+- [ ] Manual test: load git history and query commits/changes via SPARQL
+
+## M7 — Advanced Features
 
 - [ ] `list_namespaces` / `add_namespace` tools for prefix management
 - [ ] `store_stats` tool (triple count, graph count, store size)
