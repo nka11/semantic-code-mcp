@@ -24,9 +24,9 @@ oxc_parser = "0.114"
 oxc_ast = "0.114"
 oxc_allocator = "0.114"
 oxc_span = "0.114"
-git2 = "0.20"
+git2 = { version = "0.20", features = ["vendored-openssl"] }
 time = { version = "0.3", features = ["formatting"] }
 
 [dev-dependencies]
 tempfile = "3"
-git2 = "0.20"
+git2 = { version = "0.20", features = ["vendored-openssl"] }
