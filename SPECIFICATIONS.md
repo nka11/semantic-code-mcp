@@ -19,13 +19,16 @@ Claude Code  <──stdio──>  MCP Server (Rust)  <──native API──>  O
                                ├── Generic RDF tools
                                │   (sparql_query, sparql_update, load_rdf, list_graphs)
                                │
-                               └── Code-loading tools
-                                   ├── load_code (generic dispatcher)
-                                   ├── load_rust_code
-                                   ├── load_python_code
-                                   └── load_ts_code
-                                   │
-                                   └── LanguageLoader trait (plugin system)
+                               ├── Code-loading tools
+                               │   ├── load_code (generic dispatcher)
+                               │   ├── load_rust_code
+                               │   ├── load_python_code
+                               │   └── load_ts_code
+                               │   │
+                               │   └── LanguageLoader trait (plugin system)
+                               │
+                               └── Git history tools
+                                   └── load_git_history
 ```
 
 - **Transport**: stdio (stdin/stdout JSON-RPC)
@@ -113,6 +116,8 @@ List all named graphs in the store.
 
 The code-loading tools parse source code from a project directory and represent it as RDF triples in the Oxigraph store. This enables an LLM coding agent to query structural and semantic information about a codebase using SPARQL — modules, functions, classes, imports, dependencies, call relationships, and file metadata.
 
+**Single graph model:** All loaders (code and git) write triples into the **default graph**. This avoids the complexity of cross-graph queries and allows simple SPARQL patterns to join code structure with git history. Entities from different languages are distinguished by the `code:language` property on `code:Module` and `code:Project` nodes. The generic `load_rdf` tool retains its optional `graph` parameter for user-managed RDF data.
+
 ### 4.2 RDF Ontology for Code Representation
 
 The code representation builds on existing ontologies, extended as needed:
@@ -161,6 +166,32 @@ The code representation builds on existing ontologies, extended as needed:
 | `code:version` | `code:Project`/`code:Dependency` | xsd:string | Version string |
 | `code:language` | `code:Module` | xsd:string | Programming language |
 
+#### Git History Classes
+
+| Class | Description |
+|---|---|
+| `code:Commit` | A git commit |
+| `code:FileChange` | A file modification within a commit |
+
+#### Git History Properties
+
+| Property | Domain | Range | Description |
+|---|---|---|---|
+| `code:commitHash` | `code:Commit` | xsd:string | Full SHA-1 hash |
+| `code:shortHash` | `code:Commit` | xsd:string | Abbreviated hash (7 chars) |
+| `code:authorName` | `code:Commit` | xsd:string | Author name |
+| `code:authorEmail` | `code:Commit` | xsd:string | Author email |
+| `code:committerName` | `code:Commit` | xsd:string | Committer name |
+| `code:committerEmail` | `code:Commit` | xsd:string | Committer email |
+| `code:commitDate` | `code:Commit` | xsd:dateTime | Commit timestamp (ISO 8601) |
+| `code:message` | `code:Commit` | xsd:string | Full commit message |
+| `code:parentCommit` | `code:Commit` | `code:Commit` | Parent commit (multiple for merges) |
+| `code:hasChange` | `code:Commit` | `code:FileChange` | File change within this commit |
+| `code:changeType` | `code:FileChange` | xsd:string | One of: "added", "modified", "deleted", "renamed" |
+| `code:filePath` | `code:FileChange` | xsd:string | Path of the changed file (relative to repo root) |
+| `code:oldFilePath` | `code:FileChange` | xsd:string | Previous path (for renames only) |
+| `code:affectsModule` | `code:FileChange` | `code:Module` | Links file change to a loaded code Module (if loaded) |
+
 ### 4.3 `load_code` (Generic Dispatcher)
 
 Load source code from a project directory into the RDF store, auto-detecting or explicitly specifying the language.
@@ -170,7 +201,6 @@ Load source code from a project directory into the RDF store, auto-detecting or 
 |---|---|---|---|
 | `path` | string | yes | Path to a file or project directory |
 | `language` | string | no | Language hint. Currently supported: `rust`. Default: auto-detect from project markers |
-| `graph` | string | no | Target named graph URI. Default: `code:<language>` |
 
 **Behavior:**
 - If `path` is a directory, recursively discover source files for the specified (or detected) language
@@ -189,7 +219,6 @@ Load Rust source code into the RDF store.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Path to a `.rs` file, a directory, or a Cargo workspace root |
-| `graph` | string | no | Target named graph URI. Default: `code:rust` |
 
 **Rust-specific behavior:**
 - Parses `Cargo.toml` for project metadata and dependencies
@@ -205,7 +234,6 @@ Load Python source code into the RDF store.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Path to a `.py` file, a directory, or a project root with `pyproject.toml` |
-| `graph` | string | no | Target named graph URI. Default: `code:python` |
 
 **Python-specific behavior:**
 - Parses `pyproject.toml` / `setup.py` / `requirements.txt` for dependencies
@@ -220,12 +248,64 @@ Load TypeScript/JavaScript source code into the RDF store.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `path` | string | yes | Path to a `.ts`/`.js` file, a directory, or a project root with `package.json` |
-| `graph` | string | no | Target named graph URI. Default: `code:typescript` |
 
 **TypeScript-specific behavior:**
 - Parses `package.json` for project metadata and dependencies
 - Parses `.ts`/`.tsx`/`.js`/`.jsx` files for AST extraction (using a Rust-based parser such as `swc` or `tree-sitter-typescript`)
 - Extracts: modules, functions, classes, interfaces, type aliases, imports/exports, JSDoc comments
+
+### 4.7 `load_git_history`
+
+Load git commit history into the RDF store from a git repository.
+
+**Input:**
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Path to a git repository (must contain a `.git` directory) |
+| `max_commits` | integer | no | Maximum number of commits to load. Default: 500 |
+| `branch` | string | no | Branch or ref to walk. Default: `HEAD` |
+
+**Git-specific behavior:**
+- Walks the commit graph starting from the specified branch/ref
+- Extracts commit metadata: hash, author, committer, date, message, parent(s)
+- Extracts per-commit file changes via diff-tree: added, modified, deleted, renamed files
+- Each commit is a `code:Commit` node; each file change is a `code:FileChange` node linked to the commit
+- File changes are linked to `code:Module` nodes (via `code:affectsModule`) when a corresponding module has been loaded by a code loader — since all data lives in the default graph, simple joins connect git history with code structure
+- Commit URIs use the short hash: `code:commit/<short_hash>` (e.g., `code:commit/4ad47e6`)
+- FileChange URIs: `code:commit/<short_hash>/<relative_path>` (e.g., `code:commit/4ad47e6/src/main.rs`)
+- The `code:Project` node (if present from a code loader) is linked to commits via `code:hasCommit`
+
+**Implementation approach:**
+- Uses `git2` crate (libgit2 bindings) for repository access — no shelling out to `git` CLI
+- Not a `LanguageLoader` — this is a standalone tool in `tools/git.rs` with its own loader in `loaders/git.rs`
+- Pure sync functions consistent with other tool implementations
+
+**Example SPARQL queries after loading:**
+```sparql
+# Find recent commits that modified a specific file
+PREFIX code: <https://ds-labs.org/code#>
+SELECT ?hash ?msg ?date WHERE {
+  ?c a code:Commit ; code:shortHash ?hash ; code:message ?msg ; code:commitDate ?date ;
+     code:hasChange ?ch .
+  ?ch code:filePath "src/main.rs" .
+} ORDER BY DESC(?date) LIMIT 10
+
+# Find all files changed in a commit
+PREFIX code: <https://ds-labs.org/code#>
+SELECT ?path ?type WHERE {
+  ?c a code:Commit ; code:shortHash "4ad47e6" ; code:hasChange ?ch .
+  ?ch code:filePath ?path ; code:changeType ?type .
+}
+
+# Find commits that touched functions in a module (single-graph join)
+PREFIX code: <https://ds-labs.org/code#>
+SELECT ?hash ?msg ?fname WHERE {
+  ?c a code:Commit ; code:shortHash ?hash ; code:message ?msg ; code:hasChange ?ch .
+  ?ch code:affectsModule ?mod .
+  ?mod a code:Module ; code:hasFunction ?f .
+  ?f code:name ?fname .
+}
+```
 
 ## 5. Plugin System — LanguageLoader Trait
 
@@ -275,12 +355,14 @@ oxigraph-code/
         │   ├── mod.rs           # Tool registration
         │   ├── sparql.rs        # sparql_query, sparql_update
         │   ├── rdf.rs           # load_rdf, list_graphs
-        │   └── code.rs          # load_code (generic dispatcher)
+        │   ├── code.rs          # load_code (generic dispatcher)
+        │   └── git.rs           # load_git_history
         └── loaders/
             ├── mod.rs           # LanguageLoader trait, registry, auto-detection
             ├── rust.rs          # Rust loader (load_rust_code)
             ├── python.rs        # Python loader (load_python_code)
-            └── typescript.rs    # TypeScript loader (load_ts_code)
+            ├── typescript.rs    # TypeScript loader (load_ts_code)
+            └── git.rs           # Git history loader (commit graph, file changes)
 ```
 
 ## 7. Configuration
