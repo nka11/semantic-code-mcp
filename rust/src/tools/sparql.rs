@@ -8,11 +8,7 @@ fn tool_error(msg: String) -> CallToolResult {
     CallToolResult::error(vec![Content::text(msg)])
 }
 
-pub fn sparql_query(
-    store: &Store,
-    query: &str,
-    default_graph: Option<&str>,
-) -> CallToolResult {
+pub fn sparql_query(store: &Store, query: &str, default_graph: Option<&str>) -> CallToolResult {
     let mut prepared = match SparqlEvaluator::new().parse_query(query) {
         Ok(p) => p,
         Err(e) => return tool_error(format!("SPARQL parse error: {e}")),
@@ -21,9 +17,7 @@ pub fn sparql_query(
     if let Some(graph_uri) = default_graph {
         match oxigraph::model::NamedNode::new(graph_uri) {
             Ok(nn) => {
-                prepared
-                    .dataset_mut()
-                    .set_default_graph(vec![nn.into()]);
+                prepared.dataset_mut().set_default_graph(vec![nn.into()]);
             }
             Err(e) => return tool_error(format!("Invalid default_graph URI: {e}")),
         }
@@ -38,10 +32,8 @@ pub fn sparql_query(
         QueryResults::Solutions(solutions) => {
             let variables = solutions.variables().to_vec();
             let mut buffer = Vec::new();
-            let serializer =
-                QueryResultsSerializer::from_format(QueryResultsFormat::Json);
-            let mut writer = match serializer
-                .serialize_solutions_to_writer(&mut buffer, variables)
+            let serializer = QueryResultsSerializer::from_format(QueryResultsFormat::Json);
+            let mut writer = match serializer.serialize_solutions_to_writer(&mut buffer, variables)
             {
                 Ok(w) => w,
                 Err(e) => return tool_error(format!("Serialization error: {e}")),
@@ -82,9 +74,9 @@ pub fn sparql_query(
             let nt = String::from_utf8_lossy(&buffer).into_owned();
             CallToolResult::success(vec![Content::text(nt)])
         }
-        QueryResults::Boolean(value) => CallToolResult::success(vec![Content::text(
-            if value { "true" } else { "false" },
-        )]),
+        QueryResults::Boolean(value) => {
+            CallToolResult::success(vec![Content::text(if value { "true" } else { "false" })])
+        }
     }
 }
 
@@ -98,9 +90,7 @@ pub fn sparql_update(store: &Store, update: &str) -> CallToolResult {
         return tool_error(format!("Update execution error: {e}"));
     }
 
-    CallToolResult::success(vec![Content::text(
-        "SPARQL UPDATE executed successfully.",
-    )])
+    CallToolResult::success(vec![Content::text("SPARQL UPDATE executed successfully.")])
 }
 
 #[cfg(test)]
@@ -205,7 +195,10 @@ mod tests {
         );
         assert!(!is_error(&result));
         let text = result_text(&result);
-        assert!(!text.contains("Alice"), "Should not find Alice in default graph: {text}");
+        assert!(
+            !text.contains("Alice"),
+            "Should not find Alice in default graph: {text}"
+        );
 
         // With default_graph set, the named graph becomes the default
         let result = sparql_query(
@@ -215,7 +208,10 @@ mod tests {
         );
         assert!(!is_error(&result));
         let text = result_text(&result);
-        assert!(text.contains("Alice"), "Should find Alice with default_graph set: {text}");
+        assert!(
+            text.contains("Alice"),
+            "Should find Alice with default_graph set: {text}"
+        );
     }
 
     #[test]

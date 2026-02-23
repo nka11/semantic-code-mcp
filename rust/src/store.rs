@@ -4,8 +4,8 @@ use std::path::PathBuf;
 const DEFAULT_STORE_PATH: &str = "./oxigraph_data";
 
 pub fn open_store() -> Result<Store, Box<dyn std::error::Error>> {
-    let path = std::env::var("OXIGRAPH_STORE_PATH")
-        .unwrap_or_else(|_| DEFAULT_STORE_PATH.to_string());
+    let path =
+        std::env::var("OXIGRAPH_STORE_PATH").unwrap_or_else(|_| DEFAULT_STORE_PATH.to_string());
     let path = PathBuf::from(path);
 
     if let Some(parent) = path.parent() {

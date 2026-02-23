@@ -183,11 +183,7 @@ fn return_type_string(output: &syn::ReturnType) -> Option<String> {
     }
 }
 
-fn extract_fn_quads(
-    func: &syn::ItemFn,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_fn_quads(func: &syn::ItemFn, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let name = func.sig.ident.to_string();
     let fn_uri = code_ns(&format!("{rel_path}/{name}"));
     let mut quads = Vec::new();
@@ -244,11 +240,7 @@ fn extract_struct_quads(
 
     quads.push(quad_type(&uri, "Class"));
     quads.push(quad(&uri, "name", string_literal(&name)));
-    quads.push(quad(
-        &uri,
-        "definedIn",
-        Term::NamedNode(module_uri.clone()),
-    ));
+    quads.push(quad(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
     quads.push(quad(
         &uri,
         "visibility",
@@ -277,22 +269,14 @@ fn extract_struct_quads(
     quads
 }
 
-fn extract_enum_quads(
-    item: &syn::ItemEnum,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_enum_quads(item: &syn::ItemEnum, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let name = item.ident.to_string();
     let uri = code_ns(&format!("{rel_path}/{name}"));
     let mut quads = Vec::new();
 
     quads.push(quad_type(&uri, "Enum"));
     quads.push(quad(&uri, "name", string_literal(&name)));
-    quads.push(quad(
-        &uri,
-        "definedIn",
-        Term::NamedNode(module_uri.clone()),
-    ));
+    quads.push(quad(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
     quads.push(quad(
         &uri,
         "visibility",
@@ -322,22 +306,14 @@ fn extract_enum_quads(
     quads
 }
 
-fn extract_trait_quads(
-    item: &syn::ItemTrait,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_trait_quads(item: &syn::ItemTrait, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let name = item.ident.to_string();
     let uri = code_ns(&format!("{rel_path}/{name}"));
     let mut quads = Vec::new();
 
     quads.push(quad_type(&uri, "Trait"));
     quads.push(quad(&uri, "name", string_literal(&name)));
-    quads.push(quad(
-        &uri,
-        "definedIn",
-        Term::NamedNode(module_uri.clone()),
-    ));
+    quads.push(quad(&uri, "definedIn", Term::NamedNode(module_uri.clone())));
     quads.push(quad(
         &uri,
         "visibility",
@@ -361,11 +337,7 @@ fn extract_trait_quads(
     quads
 }
 
-fn extract_impl_quads(
-    item: &syn::ItemImpl,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_impl_quads(item: &syn::ItemImpl, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let mut quads = Vec::new();
 
     let type_name = type_to_string(&item.self_ty);
@@ -444,19 +416,11 @@ fn extract_use_quads(item: &syn::ItemUse, module_uri: &NamedNode) -> Vec<Quad> {
     vec![
         quad_type(&import_uri, "Import"),
         quad(&import_uri, "importPath", string_literal(&import_path)),
-        quad(
-            module_uri,
-            "hasImport",
-            Term::NamedNode(import_uri),
-        ),
+        quad(module_uri, "hasImport", Term::NamedNode(import_uri)),
     ]
 }
 
-fn extract_mod_quads(
-    item: &syn::ItemMod,
-    module_uri: &NamedNode,
-    rel_path: &str,
-) -> Vec<Quad> {
+fn extract_mod_quads(item: &syn::ItemMod, module_uri: &NamedNode, rel_path: &str) -> Vec<Quad> {
     let name = item.ident.to_string();
     if item.content.is_some() {
         return vec![];
@@ -465,11 +429,7 @@ fn extract_mod_quads(
     vec![
         quad_type(&mod_uri, "Module"),
         quad(&mod_uri, "name", string_literal(&name)),
-        quad(
-            module_uri,
-            "hasModule",
-            Term::NamedNode(mod_uri),
-        ),
+        quad(module_uri, "hasModule", Term::NamedNode(mod_uri)),
     ]
 }
 
@@ -496,23 +456,15 @@ fn parse_rs_file(path: &Path, project_root: &Path) -> Result<Vec<Quad>, LoadErro
         "filePath",
         string_literal(&path.to_string_lossy()),
     ));
-    quads.push(quad(
-        &module_uri,
-        "relativePath",
-        string_literal(&rel_path),
-    ));
+    quads.push(quad(&module_uri, "relativePath", string_literal(&rel_path)));
     quads.push(quad(&module_uri, "language", string_literal("rust")));
 
     for item in &syntax.items {
         match item {
             syn::Item::Fn(f) => quads.extend(extract_fn_quads(f, &module_uri, &rel_path)),
-            syn::Item::Struct(s) => {
-                quads.extend(extract_struct_quads(s, &module_uri, &rel_path))
-            }
+            syn::Item::Struct(s) => quads.extend(extract_struct_quads(s, &module_uri, &rel_path)),
             syn::Item::Enum(e) => quads.extend(extract_enum_quads(e, &module_uri, &rel_path)),
-            syn::Item::Trait(t) => {
-                quads.extend(extract_trait_quads(t, &module_uri, &rel_path))
-            }
+            syn::Item::Trait(t) => quads.extend(extract_trait_quads(t, &module_uri, &rel_path)),
             syn::Item::Impl(i) => quads.extend(extract_impl_quads(i, &module_uri, &rel_path)),
             syn::Item::Use(u) => quads.extend(extract_use_quads(u, &module_uri)),
             syn::Item::Mod(m) => quads.extend(extract_mod_quads(m, &module_uri, &rel_path)),

@@ -83,19 +83,11 @@ pub fn load_rdf(
     if is_file {
         let file = match fs::File::open(path) {
             Ok(f) => f,
-            Err(e) => {
-                return tool_error(format!(
-                    "Cannot open file '{}': {e}",
-                    path.display()
-                ))
-            }
+            Err(e) => return tool_error(format!("Cannot open file '{}': {e}", path.display())),
         };
         let reader = BufReader::new(file);
         if let Err(e) = store.load_from_reader(parser, reader) {
-            return tool_error(format!(
-                "RDF parse error in '{}': {e}",
-                path.display()
-            ));
+            return tool_error(format!("RDF parse error in '{}': {e}", path.display()));
         }
     } else if let Err(e) = store.load_from_slice(parser, input.as_bytes()) {
         return tool_error(format!("RDF parse error: {e}"));
@@ -211,13 +203,7 @@ mod tests {
             @prefix ex: <http://example.org/> .
             ex:alice ex:name "Alice" .
         "#;
-        let result = load_rdf(
-            &store,
-            ttl,
-            None,
-            None,
-            Some("http://example.org/graph1"),
-        );
+        let result = load_rdf(&store, ttl, None, None, Some("http://example.org/graph1"));
         assert!(!is_error(&result));
 
         let query_result = sparql_query(
@@ -255,13 +241,7 @@ mod tests {
         let store = Store::new().unwrap();
         // Path doesn't exist, so is_file is false and input is treated as inline content.
         // The non-existent path string is not valid Turtle, so we get a parse error.
-        let result = load_rdf(
-            &store,
-            "/nonexistent/path/to/file.ttl",
-            None,
-            None,
-            None,
-        );
+        let result = load_rdf(&store, "/nonexistent/path/to/file.ttl", None, None, None);
         assert!(is_error(&result));
         assert!(result_text(&result).contains("parse error"));
     }
@@ -305,8 +285,11 @@ mod tests {
         let result = list_graphs(&store);
         assert!(!is_error(&result));
         let graphs: Vec<String> = serde_json::from_str(result_text(&result)).unwrap();
-        assert!(graphs.contains(&"<http://example.org/mygraph>".to_string())
-            || graphs.contains(&"http://example.org/mygraph".to_string()),
-            "Expected graph URI in list, got: {:?}", graphs);
+        assert!(
+            graphs.contains(&"<http://example.org/mygraph>".to_string())
+                || graphs.contains(&"http://example.org/mygraph".to_string()),
+            "Expected graph URI in list, got: {:?}",
+            graphs
+        );
     }
 }

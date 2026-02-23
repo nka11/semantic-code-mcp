@@ -73,7 +73,9 @@ impl OxigraphServer {
         }
     }
 
-    #[tool(description = "Execute a read-only SPARQL query (SELECT, CONSTRUCT, ASK, DESCRIBE). Use this instead of grep/find to search code precisely. Always set default_graph (e.g. \"code:rust\") when querying loaded code. Prefix: PREFIX code: <https://ds-labs.org/code#>. Common patterns: find function by name: ?f a code:Function ; code:name \"foo\". Find where defined: ?f code:definedIn ?mod ; get file: ?mod code:filePath ?path. Find struct methods: ?c a code:Class ; code:name \"MyStruct\" ; code:hasFunction ?m. ?m code:name ?name. Find trait implementations: ?c code:implements \"TraitName\". List all functions in a file: ?f a code:Function ; code:definedIn ?mod. ?mod code:relativePath \"src/main.rs\". Get function signature: ?f code:parameter ?p ; code:returnType ?rt. Get line numbers: ?f code:startLine ?start ; code:endLine ?end. Find imports: ?mod code:hasImport ?imp. ?imp code:importPath ?path. Find dependencies: ?proj a code:Project ; code:hasDependency ?dep. ?dep code:name ?name ; code:version ?ver.")]
+    #[tool(
+        description = "Execute a read-only SPARQL query (SELECT, CONSTRUCT, ASK, DESCRIBE). Use this instead of grep/find to search code precisely. Always set default_graph (e.g. \"code:rust\") when querying loaded code. Prefix: PREFIX code: <https://ds-labs.org/code#>. Common patterns: find function by name: ?f a code:Function ; code:name \"foo\". Find where defined: ?f code:definedIn ?mod ; get file: ?mod code:filePath ?path. Find struct methods: ?c a code:Class ; code:name \"MyStruct\" ; code:hasFunction ?m. ?m code:name ?name. Find trait implementations: ?c code:implements \"TraitName\". List all functions in a file: ?f a code:Function ; code:definedIn ?mod. ?mod code:relativePath \"src/main.rs\". Get function signature: ?f code:parameter ?p ; code:returnType ?rt. Get line numbers: ?f code:startLine ?start ; code:endLine ?end. Find imports: ?mod code:hasImport ?imp. ?imp code:importPath ?path. Find dependencies: ?proj a code:Project ; code:hasDependency ?dep. ?dep code:name ?name ; code:version ?ver."
+    )]
     async fn sparql_query(
         &self,
         Parameters(params): Parameters<SparqlQueryParams>,
@@ -86,7 +88,9 @@ impl OxigraphServer {
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
     }
 
-    #[tool(description = "Execute a SPARQL UPDATE operation (INSERT DATA, DELETE DATA, DELETE/INSERT WHERE, LOAD, CLEAR, DROP, CREATE)")]
+    #[tool(
+        description = "Execute a SPARQL UPDATE operation (INSERT DATA, DELETE DATA, DELETE/INSERT WHERE, LOAD, CLEAR, DROP, CREATE)"
+    )]
     async fn sparql_update(
         &self,
         Parameters(params): Parameters<SparqlUpdateParams>,
@@ -124,7 +128,9 @@ impl OxigraphServer {
             .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
     }
 
-    #[tool(description = "Load source code into the RDF store by parsing project metadata and source files. Supports auto-detection of language from project markers (Cargo.toml). Currently supports Rust only. Produces RDF triples using the code: namespace (https://ds-labs.org/code#) with classes: Project, Module, Function, Class, Enum, Trait, Import, Dependency. Default graph: code:<language>.")]
+    #[tool(
+        description = "Load source code into the RDF store by parsing project metadata and source files. Supports auto-detection of language from project markers (Cargo.toml). Currently supports Rust only. Produces RDF triples using the code: namespace (https://ds-labs.org/code#) with classes: Project, Module, Function, Class, Enum, Trait, Import, Dependency. Default graph: code:<language>."
+    )]
     async fn load_code(
         &self,
         Parameters(params): Parameters<LoadCodeParams>,
@@ -144,7 +150,9 @@ impl OxigraphServer {
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
     }
 
-    #[tool(description = "Load Rust source code into the RDF store. Parses Cargo.toml for project metadata and .rs files for functions, structs, enums, traits, and impl blocks. Produces RDF triples in the code: namespace (https://ds-labs.org/code#). Default graph: code:rust. After loading, use sparql_query with default_graph=\"code:rust\" to query. Classes: Project (name, version, edition, language, hasDependency, hasModule), Module (name, filePath, relativePath, hasFunction, hasImport), Function (name, visibility, parameter, returnType, startLine, endLine, definedIn, docstring), Class (structs: name, visibility, hasField, hasFunction/hasMethod, implements, startLine, endLine, definedIn, docstring), Enum (name, visibility, hasVariant, startLine, endLine, definedIn), Trait (name, visibility, hasFunction, startLine, endLine, definedIn), Import (importPath), Dependency (name, version). Entity URIs use relative paths: code:src/main.rs, code:src/main.rs/MyStruct, code:src/main.rs/my_function. Use definedIn to navigate from entity to module, filePath/relativePath to get the actual file path for reading source code.")]
+    #[tool(
+        description = "Load Rust source code into the RDF store. Parses Cargo.toml for project metadata and .rs files for functions, structs, enums, traits, and impl blocks. Produces RDF triples in the code: namespace (https://ds-labs.org/code#). Default graph: code:rust. After loading, use sparql_query with default_graph=\"code:rust\" to query. Classes: Project (name, version, edition, language, hasDependency, hasModule), Module (name, filePath, relativePath, hasFunction, hasImport), Function (name, visibility, parameter, returnType, startLine, endLine, definedIn, docstring), Class (structs: name, visibility, hasField, hasFunction/hasMethod, implements, startLine, endLine, definedIn, docstring), Enum (name, visibility, hasVariant, startLine, endLine, definedIn), Trait (name, visibility, hasFunction, startLine, endLine, definedIn), Import (importPath), Dependency (name, version). Entity URIs use relative paths: code:src/main.rs, code:src/main.rs/MyStruct, code:src/main.rs/my_function. Use definedIn to navigate from entity to module, filePath/relativePath to get the actual file path for reading source code."
+    )]
     async fn load_rust_code(
         &self,
         Parameters(params): Parameters<LoadRustCodeParams>,
@@ -152,12 +160,7 @@ impl OxigraphServer {
         let store = self.store.clone();
         let registry = self.registry.clone();
         tokio::task::spawn_blocking(move || {
-            tools::code::load_rust_code(
-                &store,
-                &registry,
-                &params.path,
-                params.graph.as_deref(),
-            )
+            tools::code::load_rust_code(&store, &registry, &params.path, params.graph.as_deref())
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))

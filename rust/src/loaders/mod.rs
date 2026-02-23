@@ -77,7 +77,8 @@ impl LoaderRegistry {
     }
 
     pub fn register(&mut self, loader: Box<dyn LanguageLoader>) {
-        self.loaders.insert(loader.language_id().to_string(), loader);
+        self.loaders
+            .insert(loader.language_id().to_string(), loader);
     }
 
     /// Auto-detect language from a path (checks file extensions and marker files).
