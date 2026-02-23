@@ -198,7 +198,16 @@ fn extract_struct_quads(
         }
         for field in &fields.named {
             if let Some(ident) = &field.ident {
-                quads.push(q(&uri, "hasField", string_literal(&ident.to_string())));
+                let field_name = ident.to_string();
+                let field_uri = code_ns(&format!("{rel_path}/{name}/{field_name}"));
+                quads.push(qt(&field_uri, "Field"));
+                quads.push(q(&field_uri, "name", string_literal(&field_name)));
+                quads.push(q(&uri, "hasField", Term::NamedNode(field_uri.clone())));
+                quads.push(q(&field_uri, "fieldType", string_literal(&type_to_string(&field.ty))));
+                let f_start = ident.span().start().line;
+                quads.push(q(&field_uri, "startLine", integer_literal(f_start as i64)));
+                let vis = visibility_str(&field.vis);
+                quads.push(q(&field_uri, "visibility", string_literal(vis)));
             }
         }
     }
@@ -429,5 +438,18 @@ impl LanguageLoader for RustLoader {
 
     fn load_project_metadata(&self, project_root: &Path) -> Result<Vec<Quad>, LoadError> {
         parse_cargo_toml(project_root)
+    }
+
+    fn project_uri(&self, project_root: &Path) -> Option<NamedNode> {
+        let cargo_path = project_root.join("Cargo.toml");
+        let content = std::fs::read_to_string(&cargo_path).ok()?;
+        let doc: toml::Value = toml::from_str(&content).ok()?;
+        let name = doc
+            .as_table()?
+            .get("package")?
+            .as_table()?
+            .get("name")?
+            .as_str()?;
+        Some(code_ns(&format!("project/{name}")))
     }
 }

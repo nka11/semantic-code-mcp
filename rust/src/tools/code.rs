@@ -1,4 +1,5 @@
-use crate::loaders::{discover_files, LoaderRegistry};
+use crate::loaders::{code_ns, discover_files, LoaderRegistry};
+use oxigraph::model::{GraphName, NamedOrBlankNode, Quad, Term};
 use oxigraph::store::Store;
 use rmcp::model::CallToolResult;
 
@@ -51,6 +52,8 @@ pub fn load_code(
             Err(e) => errors.push(format!("Metadata: {e}")),
         }
 
+        let proj_uri = loader.project_uri(project_root);
+
         // Discover and load source files
         let files = discover_files(path, loader.file_extensions(), loader.ignore_patterns());
         for file in &files {
@@ -58,6 +61,21 @@ pub fn load_code(
                 Ok(quads) => {
                     all_quads.extend(quads);
                     files_loaded += 1;
+
+                    // Link Project → hasModule for each loaded file
+                    if let Some(ref proj) = proj_uri {
+                        let rel_path = file
+                            .strip_prefix(project_root)
+                            .unwrap_or(file)
+                            .to_string_lossy();
+                        let module_uri = code_ns(&rel_path);
+                        all_quads.push(Quad::new(
+                            NamedOrBlankNode::NamedNode(proj.clone()),
+                            code_ns("hasModule"),
+                            Term::NamedNode(module_uri),
+                            GraphName::DefaultGraph,
+                        ));
+                    }
                 }
                 Err(e) => errors.push(format!("{}: {e}", file.display())),
             }
@@ -192,6 +210,17 @@ tokio = { version = "1", features = ["full"] }
         );
         assert!(json.contains("serde"), "serde dependency not found: {json}");
         assert!(json.contains("tokio"), "tokio dependency not found: {json}");
+
+        // Project → hasModule link
+        let json = q(
+            &store,
+            "SELECT ?path",
+            r#"?p a code:Project ; code:name "test-project" ; code:hasModule ?mod . ?mod code:relativePath ?path ."#,
+        );
+        assert!(
+            json.contains("src"),
+            "hasModule link not found: {json}"
+        );
     }
 
     #[test]
@@ -258,6 +287,16 @@ mod utils;
             "?s a code:Class ; code:name ?name .",
         );
         assert!(json.contains("Config"), "Struct 'Config' not found: {json}");
+
+        // Struct fields (structured Field nodes)
+        let json = q(
+            &store,
+            "SELECT ?field ?ftype",
+            r#"?s a code:Class ; code:name "Config" ; code:hasField ?f . ?f a code:Field ; code:name ?field ; code:fieldType ?ftype ."#,
+        );
+        assert!(json.contains("host"), "Struct field 'host' not found: {json}");
+        assert!(json.contains("port"), "Struct field 'port' not found: {json}");
+        assert!(json.contains("String"), "Struct field type 'String' not found: {json}");
 
         // Enum
         let json = q(&store, "SELECT ?name", "?e a code:Enum ; code:name ?name .");
@@ -471,6 +510,17 @@ mod utils;
             json.contains("typescript"),
             "typescript devDep not found: {json}"
         );
+
+        // Project → hasModule link
+        let json = q(
+            &store,
+            "SELECT ?path",
+            r#"?p a code:Project ; code:name "my-app" ; code:hasModule ?mod . ?mod code:relativePath ?path ."#,
+        );
+        assert!(
+            json.contains("index.ts"),
+            "hasModule link to index.ts not found: {json}"
+        );
     }
 
     #[test]
@@ -549,14 +599,16 @@ const helper = (x: number): number => x * 2;
         );
         assert!(json.contains("Config"), "Class 'Config' not found: {json}");
 
-        // Class fields
+        // Class fields (now structured Field nodes)
         let json = q(
             &store,
-            "SELECT ?field",
-            r#"?c a code:Class ; code:name "Config" ; code:hasField ?field ."#,
+            "SELECT ?field ?ftype",
+            r#"?c a code:Class ; code:name "Config" ; code:hasField ?f . ?f a code:Field ; code:name ?field . OPTIONAL { ?f code:fieldType ?ftype }"#,
         );
         assert!(json.contains("host"), "Field 'host' not found: {json}");
         assert!(json.contains("port"), "Field 'port' not found: {json}");
+        assert!(json.contains("string"), "Field type 'string' not found: {json}");
+        assert!(json.contains("number"), "Field type 'number' not found: {json}");
 
         // Class methods
         let json = q(
@@ -592,15 +644,19 @@ const helper = (x: number): number => x * 2;
             "Interface method 'handle' not found: {json}"
         );
 
-        // Interface fields
+        // Interface fields (now structured Field nodes)
         let json = q(
             &store,
-            "SELECT ?field",
-            r#"?t a code:Trait ; code:name "Handler" ; code:hasField ?field ."#,
+            "SELECT ?field ?ftype",
+            r#"?t a code:Trait ; code:name "Handler" ; code:hasField ?f . ?f a code:Field ; code:name ?field . OPTIONAL { ?f code:fieldType ?ftype }"#,
         );
         assert!(
             json.contains("name"),
             "Interface field 'name' not found: {json}"
+        );
+        assert!(
+            json.contains("string"),
+            "Interface field type 'string' not found: {json}"
         );
 
         // Type alias
@@ -644,6 +700,15 @@ const helper = (x: number): number => x * 2;
             "?i a code:Import ; code:importPath ?path .",
         );
         assert!(json.contains("express"), "Import not found: {json}");
+
+        // Named import symbols
+        let json = q(
+            &store,
+            "SELECT ?sym",
+            r#"?i a code:Import ; code:importPath "express" ; code:importedSymbol ?sym ."#,
+        );
+        assert!(json.contains("Request"), "Import symbol 'Request' not found: {json}");
+        assert!(json.contains("Response"), "Import symbol 'Response' not found: {json}");
 
         // Arrow function
         let json = q(

@@ -411,7 +411,16 @@ fn extract_class_quads(
             }
             ClassElement::PropertyDefinition(prop) => {
                 if let Some(field_name) = property_key_name(&prop.key) {
-                    quads.push(q(&class_uri, "hasField", string_literal(&field_name)));
+                    let field_uri = code_ns(&format!("{}/{name}/{field_name}", ctx.rel_path));
+                    quads.push(qt(&field_uri, "Field"));
+                    quads.push(q(&field_uri, "name", string_literal(&field_name)));
+                    quads.push(q(&class_uri, "hasField", Term::NamedNode(field_uri.clone())));
+                    if let Some(ann) = &prop.type_annotation {
+                        quads.push(q(&field_uri, "fieldType", string_literal(&ts_type_to_string(ann))));
+                    }
+                    quads.push(q(&field_uri, "optional", string_literal(if prop.optional { "true" } else { "false" })));
+                    let f_start = offset_to_line(ctx.line_table, prop.span.start);
+                    quads.push(q(&field_uri, "startLine", integer_literal(f_start as i64)));
                 }
             }
             _ => {}
@@ -468,7 +477,16 @@ fn extract_interface_quads(
             }
             TSSignature::TSPropertySignature(prop) => {
                 if let Some(field_name) = property_key_name(&prop.key) {
-                    quads.push(q(&uri, "hasField", string_literal(&field_name)));
+                    let field_uri = code_ns(&format!("{}/{name}/{field_name}", ctx.rel_path));
+                    quads.push(qt(&field_uri, "Field"));
+                    quads.push(q(&field_uri, "name", string_literal(&field_name)));
+                    quads.push(q(&uri, "hasField", Term::NamedNode(field_uri.clone())));
+                    if let Some(ann) = &prop.type_annotation {
+                        quads.push(q(&field_uri, "fieldType", string_literal(&ts_type_to_string(ann))));
+                    }
+                    quads.push(q(&field_uri, "optional", string_literal(if prop.optional { "true" } else { "false" })));
+                    let f_start = offset_to_line(ctx.line_table, prop.span.start);
+                    quads.push(q(&field_uri, "startLine", integer_literal(f_start as i64)));
                 }
             }
             _ => {}
@@ -561,11 +579,34 @@ fn extract_enum_quads(
 fn extract_import_quads(import: &ImportDeclaration, module_uri: &NamedNode) -> Vec<Quad> {
     let path = import.source.value.as_str();
     let import_uri = code_ns(&format!("import/{}", path.replace('/', "_")));
-    vec![
+    let mut quads = vec![
         qt(&import_uri, "Import"),
         q(&import_uri, "importPath", string_literal(path)),
-        q(module_uri, "hasImport", Term::NamedNode(import_uri)),
-    ]
+        q(module_uri, "hasImport", Term::NamedNode(import_uri.clone())),
+    ];
+
+    // Extract named import specifiers
+    if let Some(specifiers) = &import.specifiers {
+        for spec in specifiers {
+            match spec {
+                ImportDeclarationSpecifier::ImportSpecifier(s) => {
+                    quads.push(q(&import_uri, "importedSymbol", string_literal(&s.local.name)));
+                }
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(s) => {
+                    quads.push(q(&import_uri, "importedSymbol", string_literal(&s.local.name)));
+                }
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) => {
+                    quads.push(q(
+                        &import_uri,
+                        "importedSymbol",
+                        string_literal(&format!("* as {}", s.local.name)),
+                    ));
+                }
+            }
+        }
+    }
+
+    quads
 }
 
 fn extract_var_decl_quads(
@@ -789,5 +830,13 @@ impl LanguageLoader for TypeScriptLoader {
 
     fn load_project_metadata(&self, project_root: &Path) -> Result<Vec<Quad>, LoadError> {
         parse_package_json(project_root)
+    }
+
+    fn project_uri(&self, project_root: &Path) -> Option<NamedNode> {
+        let pkg_path = project_root.join("package.json");
+        let content = std::fs::read_to_string(&pkg_path).ok()?;
+        let doc: serde_json::Value = serde_json::from_str(&content).ok()?;
+        let name = doc["name"].as_str()?;
+        Some(code_ns(&format!("project/{name}")))
     }
 }
