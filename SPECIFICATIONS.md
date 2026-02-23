@@ -27,8 +27,12 @@ Claude Code  <──stdio──>  MCP Server (Rust)  <──native API──>  O
                                │   │
                                │   └── LanguageLoader trait (plugin system)
                                │
-                               └── Git history tools
-                                   └── load_git_history
+                               ├── Git history tools
+                               │   └── load_git_history
+                               │
+                               └── Ansible infrastructure tools
+                                   ├── load_inventory
+                                   └── load_ansible
 ```
 
 - **Transport**: stdio (stdin/stdout JSON-RPC)
@@ -307,7 +311,159 @@ SELECT ?hash ?msg ?fname WHERE {
 }
 ```
 
-## 5. Plugin System — LanguageLoader Trait
+## 5. Ansible Infrastructure Loading Tools
+
+### 5.1 Purpose
+
+The Ansible loading tools parse Ansible infrastructure-as-code artifacts — inventory files, playbooks, roles, and variable files — into RDF triples. This enables SPARQL queries over infrastructure topology, deployment automation, and host configuration alongside code and architecture data.
+
+**Cross-ontology integration:** Inventory hosts are typed as ICAS `host:Host`, enabling joins with C4 deployment nodes, monitoring probes, and hardening reports from the ds-reporting ontology stack.
+
+**Single graph model:** Like all other loaders, Ansible triples are stored in the **default graph**.
+
+### 5.2 Namespaces
+
+| Prefix | URI | Source |
+|--------|-----|--------|
+| `ans:` | `https://ds-labs.org/ansible#` | Ansible-specific classes and properties |
+| `host:` | `http://www.invincea.com/ontologies/icas/1.0/host#` | ICAS host identity (shared across ontologies) |
+
+### 5.3 RDF Ontology for Ansible
+
+#### Classes
+
+| Class | Description |
+|-------|-------------|
+| `host:Host` | Inventory host (ICAS, enables cross-ontology joins) |
+| `ans:HostGroup` | Group of hosts (e.g., `[webservers]`) |
+| `ans:Inventory` | Inventory file/directory |
+| `ans:Variable` | Key-value variable |
+| `ans:Playbook` | Playbook YAML file |
+| `ans:Play` | Play within a playbook (`- hosts:` block) |
+| `ans:Task` | Task within a play or role |
+| `ans:Role` | Ansible role |
+| `ans:Handler` | Notified handler |
+| `ans:Template` | Jinja2 template file |
+
+#### Properties
+
+| Property | Domain → Range | Description |
+|----------|----------------|-------------|
+| `host:hostName` | Host → xsd:string | Hostname from inventory |
+| `ans:ansibleHost` | Host → xsd:string | `ansible_host` connection address |
+| `ans:memberOf` | Host → HostGroup | Host-to-group membership |
+| `ans:hasHost` | HostGroup → Host | Group contains host |
+| `ans:childGroup` | HostGroup → HostGroup | Group hierarchy |
+| `ans:hasVariable` | Host/Group/Role → Variable | Variable attachment |
+| `ans:variableName` | Variable → xsd:string | Variable key |
+| `ans:variableValue` | Variable → xsd:string | Variable value |
+| `ans:hasPlay` | Playbook → Play | Play containment |
+| `ans:targetHosts` | Play → xsd:string | Hosts pattern |
+| `ans:hasTask` | Play/Role → Task | Task containment |
+| `ans:module` | Task/Handler → xsd:string | Ansible module name |
+| `ans:usesRole` | Play → Role | Role inclusion |
+| `ans:dependsOn` | Role → Role | Role dependency |
+| `ans:hasHandler` | Play/Role → Handler | Handler containment |
+| `ans:hasTemplate` | Role → Template | Template containment |
+| `ans:name` | any → xsd:string | Entity name |
+| `ans:sourceFile` | any → xsd:string | Source file path (relative) |
+
+#### URI Patterns
+
+| Entity | Pattern | Example |
+|--------|---------|---------|
+| Host | `ans:host/<hostname>` | `ans:host/web01` |
+| Group | `ans:group/<name>` | `ans:group/webservers` |
+| Variable | `ans:var/<owner_type>/<owner>/<key>` | `ans:var/host/web01/http_port` |
+| Playbook | `ans:playbook/<rel_path>` | `ans:playbook/site.yml` |
+| Play | `ans:play/<playbook>/<idx>` | `ans:play/site.yml/0` |
+| Task | `ans:task/<context>/<idx>` | `ans:task/site.yml/0/3` |
+| Role | `ans:role/<name>` | `ans:role/nginx` |
+| Handler | `ans:handler/<context>/<slug>` | `ans:handler/nginx/restart_nginx` |
+| Template | `ans:template/<role>/<filename>` | `ans:template/nginx/nginx.conf.j2` |
+
+### 5.4 `load_inventory`
+
+Load an Ansible inventory into the RDF store.
+
+**Input:**
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Path to an inventory file (INI or YAML) or inventory directory |
+
+**Behavior:**
+- Auto-detects INI vs YAML format from content
+- Parses INI sections: `[group]`, `[group:children]`, `[group:vars]`, inline host vars
+- Parses YAML inventory structure: `all.hosts`, `all.children`, `all.vars`
+- Expands host range patterns (e.g., `web[01:05]` → `web01..web05`)
+- Loads `host_vars/` and `group_vars/` directories if present
+- Complex variable values are serialized as JSON strings
+
+**Output:**
+- Success: summary of hosts, groups, and variables loaded
+- Failure: parse error with details
+
+### 5.5 `load_ansible`
+
+Load a full Ansible project into the RDF store — inventory, playbooks, roles, tasks, handlers, and templates.
+
+**Input:**
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `path` | string | yes | Path to an Ansible project directory |
+| `inventory_path` | string | no | Path to inventory file/directory. Default: auto-detect from common locations |
+
+**Behavior:**
+1. Loads inventory (tries `inventory/`, `hosts`, `hosts.yml`, etc.)
+2. Loads `host_vars/` and `group_vars/` at project root
+3. Parses playbook YAML files at project root (files starting with `-` or `---`)
+4. Parses roles under `roles/` directory (tasks, handlers, templates, defaults, meta/dependencies)
+5. Creates stub nodes for referenced but not-found roles
+6. Task module detection: filters known task keywords; remaining key is the module name
+
+**Output:**
+- Success: summary of all entities loaded (hosts, groups, variables, playbooks, plays, tasks, roles, handlers, templates, triple count)
+- Failure: parse error with details
+
+**Implementation approach:**
+- Standalone tool pattern (like `tools/git.rs` + `loaders/git.rs`), NOT a LanguageLoader
+- Uses `serde_yaml` 0.9 with dynamic `serde_yaml::Value` (Ansible YAML is too polymorphic for typed structs)
+- Custom INI parser handling Ansible-specific syntax
+- Pure sync functions consistent with other tool implementations
+
+**Example SPARQL queries after loading:**
+```sparql
+# Find all hosts and their groups
+PREFIX ans: <https://ds-labs.org/ansible#>
+PREFIX host: <http://www.invincea.com/ontologies/icas/1.0/host#>
+SELECT ?hostname ?group WHERE {
+  ?h a host:Host ; host:hostName ?hostname ; ans:memberOf ?g .
+  ?g ans:name ?group .
+}
+
+# Find all tasks using the apt module
+PREFIX ans: <https://ds-labs.org/ansible#>
+SELECT ?taskName ?playbook WHERE {
+  ?t a ans:Task ; ans:name ?taskName ; ans:module "apt" ; ans:sourceFile ?playbook .
+}
+
+# Find role dependencies
+PREFIX ans: <https://ds-labs.org/ansible#>
+SELECT ?role ?dep WHERE {
+  ?r a ans:Role ; ans:name ?role ; ans:dependsOn ?d .
+  ?d ans:name ?dep .
+}
+
+# Cross-ontology: find hosts that are both in Ansible inventory and C4 deployment
+PREFIX ans: <https://ds-labs.org/ansible#>
+PREFIX host: <http://www.invincea.com/ontologies/icas/1.0/host#>
+SELECT ?hostname ?group ?addr WHERE {
+  ?h a host:Host ; host:hostName ?hostname ; ans:memberOf ?g ; ans:ansibleHost ?addr .
+  ?g ans:name ?group .
+}
+```
+
+## 6. Plugin System — LanguageLoader Trait
 
 New language support is added by implementing the `LanguageLoader` trait:
 
@@ -336,7 +492,7 @@ pub trait LanguageLoader: Send + Sync {
 - The generic `load_code` tool dispatches to the appropriate loader based on the `language` parameter or auto-detection from file extensions.
 - Adding a new language requires implementing the trait and registering it — no changes to the MCP tool interface.
 
-## 6. Project Structure
+## 7. Project Structure
 
 ```
 oxigraph-code/
@@ -356,22 +512,24 @@ oxigraph-code/
         │   ├── sparql.rs        # sparql_query, sparql_update
         │   ├── rdf.rs           # load_rdf, list_graphs
         │   ├── code.rs          # load_code (generic dispatcher)
-        │   └── git.rs           # load_git_history
+        │   ├── git.rs           # load_git_history
+        │   └── ansible.rs      # load_inventory, load_ansible
         └── loaders/
             ├── mod.rs           # LanguageLoader trait, registry, auto-detection
             ├── rust.rs          # Rust loader (load_rust_code)
             ├── python.rs        # Python loader (load_python_code)
             ├── typescript.rs    # TypeScript loader (load_ts_code)
-            └── git.rs           # Git history loader (commit graph, file changes)
+            ├── git.rs           # Git history loader (commit graph, file changes)
+            └── ansible.rs       # Ansible inventory/playbook/role parser
 ```
 
-## 7. Configuration
+## 8. Configuration
 
 | Variable | Default | Description |
 |---|---|---|
 | `OXIGRAPH_STORE_PATH` | `./oxigraph_data` | Path to the on-disk RocksDB store directory |
 
-## 8. Claude Code Integration
+## 9. Claude Code Integration
 
 Register the server in Claude Code's configuration (`~/.claude.json` or project-level `.mcp.json`):
 
@@ -388,7 +546,7 @@ Register the server in Claude Code's configuration (`~/.claude.json` or project-
 }
 ```
 
-## 9. Error Handling
+## 10. Error Handling
 
 All tools follow the MCP error convention:
 - Tool execution errors return `isError: true` with a descriptive text message
@@ -397,7 +555,7 @@ All tools follow the MCP error convention:
 - Code parse errors include the source file path, line number, and error details
 - Store errors (corruption, lock contention) are surfaced as-is from Oxigraph
 
-## 10. Constraints and Limitations
+## 11. Constraints and Limitations
 
 - **Single server**: one Rust binary serves all tools. No separate Python/TypeScript server implementations.
 - **File loading**: only local file paths are supported. No HTTP/URL fetching (use SPARQL `LOAD <url>` via `sparql_update` for remote sources where supported).
