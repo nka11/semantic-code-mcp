@@ -110,3 +110,83 @@
 - [ ] `drop_graph` tool (remove a named graph)
 - [ ] Bulk loading with progress reporting
 - [ ] Additional language loaders (Go, Java, C/C++, etc.)
+
+## M8 — Pluggable Vector Store
+
+- [ ] Restructure `rust/` as a Cargo workspace (workspace `Cargo.toml` + binary member)
+- [ ] Create `crates/vector_store/` crate with `Cargo.toml`
+- [ ] Define `VectorStore` async trait in `crates/vector_store/src/lib.rs`
+- [ ] Define `RagChunk`, `SearchHit`, `Filter` types
+- [ ] Implement `InMemoryVectorStore` in `crates/vector_store/src/inmemory.rs`:
+  - [ ] Add `hnsw_rs`, `ndarray`, `dashmap` dependencies
+  - [ ] Implement `upsert` — insert/update chunks in HNSW index + DashMap
+  - [ ] Implement `delete` — remove chunks from index + DashMap
+  - [ ] Implement `search` — ANN query with cosine distance, optional filtering
+- [ ] Unit tests for upsert, delete, search, filtering
+- [ ] Optional: snapshot persistence (serialize index to disk)
+
+## M9 — RAG Pipeline
+
+- [ ] Create `crates/rag_pipeline/` crate with `Cargo.toml`
+- [ ] Define embedding provider trait (pluggable API-based embedding)
+- [ ] Implement RDF canonicalization:
+  - [ ] CURIE expansion to full IRIs
+  - [ ] Deterministic predicate ordering
+  - [ ] Blank node collapsing
+  - [ ] Chunk text generation from RDF triples
+- [ ] Implement retrieval pipeline:
+  - [ ] Embed user query
+  - [ ] Call `VectorStore.search(k, filter)`
+  - [ ] Return ranked `SearchHit` results
+- [ ] Implement optional reranking pass
+- [ ] Implement context compression for LLM prompt fitting
+- [ ] Integration tests with `InMemoryVectorStore`
+
+## M10 — Agent Orchestrator
+
+- [ ] Create `crates/agent_orchestrator/` crate with `Cargo.toml`
+- [ ] Define `AgentTool` async trait and `ToolInput` / `ToolOutput` types
+- [ ] Implement `SparqlTool` — wraps existing Oxigraph store
+- [ ] Implement `RagTool` — wraps `rag_pipeline` + `VectorStore`
+- [ ] Implement `CodegenTool` — wraps LLM client for code generation
+- [ ] Implement planner/router:
+  - [ ] Query classification (SPARQL vs RAG vs codegen)
+  - [ ] Multi-step planning
+  - [ ] Result aggregation
+- [ ] Enforce prompt contract:
+  - [ ] IRI citation for semantic answers
+  - [ ] Chunk ID citation for RAG context
+  - [ ] Grounding verification (refuse ungrounded answers)
+- [ ] Wire orchestrator into the MCP server as new tool(s)
+- [ ] Integration tests with mock LLM client
+
+## M11 — External Vector DB Adapters
+
+- [ ] Implement Qdrant adapter in `crates/vector_store/src/qdrant.rs`:
+  - [ ] Add `qdrant-client` dependency (feature-gated)
+  - [ ] Implement `VectorStore` trait for Qdrant
+  - [ ] Connection management and error handling
+- [ ] Implement Milvus adapter in `crates/vector_store/src/milvus.rs`:
+  - [ ] Add Milvus client dependency (feature-gated)
+  - [ ] Implement `VectorStore` trait for Milvus
+- [ ] TOML-based backend configuration (`[rag] backend = "qdrant"`)
+- [ ] Implement `VectorBackend` enum and factory function
+- [ ] Fallback to in-memory on adapter failure
+- [ ] Integration tests with containerized Qdrant / Milvus
+
+## M12 — Observability & Production Hardening
+
+- [ ] Add `request_id` propagation via `tracing` spans
+- [ ] Log `retrieved_chunk_ids` and `sparql_queries` per request
+- [ ] Implement Precision@K evaluation hook
+- [ ] Implement Faithfulness evaluation hook
+- [ ] Implement latency tracking and reporting
+- [ ] Implement PII redaction before embedding
+- [ ] Implement namespace isolation per tenant
+- [ ] Implement graph-level ACL filtering
+- [ ] Implement hash-based chunk deduplication
+- [ ] Performance benchmarks:
+  - [ ] Retrieval latency < 20 ms (in-memory)
+  - [ ] Recall@10 > 0.9
+  - [ ] Cold start (100k chunks) < 5 sec
+  - [ ] Memory usage < 2 GB

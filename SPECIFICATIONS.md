@@ -404,3 +404,310 @@ All tools follow the MCP error convention:
 - **Concurrency**: single-session only. The store is not shared across multiple MCP server instances. The on-disk store is locked while the server is running.
 - **No authentication**: the MCP server trusts all incoming requests. It runs locally and inherits the user's file system permissions.
 - **Code parsing fidelity**: AST extraction is best-effort. Macros, metaprogramming, and dynamic constructs may not be fully represented. The goal is to capture the structural information most useful to an LLM coding agent, not a complete compiler-grade AST.
+- **No OWL DL reasoner**: full OWL Description Logic reasoning is out of scope.
+- **No heavy ML inference**: embedding generation is delegated to external APIs or lightweight local models, not run inside Rust.
+
+---
+
+## 11. RAG Data Model
+
+### 11.1 RDF Canonicalization for Embedding
+
+Chunk sources:
+- Turtle / RDF/XML files
+- SPARQL CONSTRUCT results
+- Code comments linked to IRIs
+
+Chunk schema:
+
+```rust
+struct RagChunk {
+    id: String,
+    iri: Option<String>,
+    text: String,
+    graph: Option<String>,
+    embedding: Vec<f32>,
+    metadata: HashMap<String, String>,
+}
+```
+
+### 11.2 Canonicalization Rules
+
+- Expand CURIEs to full IRIs
+- Deterministic predicate ordering
+- Collapse blank nodes
+- Optional SHACL summaries
+
+### 11.3 Search Result Model
+
+```rust
+pub struct SearchHit {
+    pub id: String,
+    pub score: f32,
+    pub text: String,
+    pub metadata: HashMap<String, String>,
+}
+
+pub enum Filter {
+    Graph(String),
+    IriPrefix(String),
+    MetadataEq(String, String),
+}
+```
+
+---
+
+## 12. Pluggable Vector DB Interface
+
+All vector backends implement a common async trait:
+
+```rust
+#[async_trait::async_trait]
+pub trait VectorStore: Send + Sync {
+    async fn upsert(&self, chunks: Vec<RagChunk>) -> anyhow::Result<()>;
+    async fn delete(&self, ids: &[String]) -> anyhow::Result<()>;
+    async fn search(&self, query: &[f32], k: usize, filter: Option<Filter>)
+        -> anyhow::Result<Vec<SearchHit>>;
+}
+```
+
+This trait enables swapping backends without changing the RAG pipeline or agent code.
+
+---
+
+## 13. Default In-Memory Vector Store
+
+Recommended crates:
+- `hnsw_rs` — ANN (approximate nearest neighbor) index
+- `ndarray` — vector operations
+- `dashmap` — concurrent hash map
+
+```rust
+pub struct InMemoryVectorStore {
+    index: hnsw_rs::Hnsw<f32, DistCosine>,
+    data: dashmap::DashMap<String, RagChunk>,
+}
+```
+
+Properties:
+| Property | Value |
+|---|---|
+| Persistence | Optional snapshot to disk |
+| Concurrency | Thread-safe via `DashMap` |
+| Scale | ~100k–500k chunks |
+
+---
+
+## 14. External Vector DB Adapters
+
+All adapters implement the `VectorStore` trait from §12.
+
+```rust
+enum VectorBackend {
+    InMemory,
+    Qdrant { url: String, collection: String },
+    Milvus { addr: String, collection: String },
+}
+```
+
+Each adapter is gated behind a Cargo feature flag (e.g., `qdrant`, `milvus`) so the default binary has no external vector DB dependencies.
+
+---
+
+## 15. RAG Retrieval Pipeline
+
+```
+User Query
+→ Embed(query)
+→ VectorStore.search(k=20, filter)
+→ Rerank (optional)
+→ Context compression
+→ LLM prompt
+```
+
+Steps:
+1. **Embedding**: user query is embedded via the configured embedding provider (API call or local model).
+2. **Retrieval**: top-k chunks retrieved from the configured `VectorStore` backend, optionally filtered by graph or IRI prefix.
+3. **Reranking** (optional): re-score retrieved chunks for relevance.
+4. **Context compression**: trim / summarize chunks to fit the LLM context window.
+5. **Prompt assembly**: inject compressed context into the LLM prompt with chunk ID and IRI citations.
+
+---
+
+## 16. Agent Tools (Extended)
+
+The agent orchestrator dispatches to tools via a common trait:
+
+```rust
+#[async_trait::async_trait]
+pub trait AgentTool {
+    async fn call(&self, input: ToolInput) -> anyhow::Result<ToolOutput>;
+}
+
+struct SparqlTool { store: oxigraph::store::Store }
+struct RagTool { vectors: Arc<dyn VectorStore> }
+struct CodegenTool { llm: LlmClient }
+```
+
+The existing MCP tools (`sparql_query`, `sparql_update`, `load_rdf`, `list_graphs`, `load_code`, `load_git_history`) continue to operate as pure sync functions. The `AgentTool` trait is an **additional** abstraction for the agent orchestrator layer.
+
+High-level agent architecture:
+
+```
+User Input
+→ Agent Orchestrator (Planner/Router)
+→ SPARQL Tool (Oxigraph)
+→ RAG Tool
+→ Vector Store Backend (InMemory | Qdrant | Milvus | Weaviate)
+```
+
+---
+
+## 17. Prompt Contract
+
+- Must cite RDF IRIs for semantic answers
+- Must cite chunk IDs for RAG-retrieved context
+- Must refuse to answer if the response cannot be grounded in retrieved data
+- SPARQL verification can be used to cross-check LLM claims against the triplestore
+
+---
+
+## 18. Configuration (Extended)
+
+The existing `OXIGRAPH_STORE_PATH` environment variable remains. Additional configuration is provided via a TOML config file:
+
+```toml
+[rag]
+backend = "inmemory"          # "inmemory" | "qdrant" | "milvus"
+embedding_dim = 1536
+top_k = 6
+
+[rag.qdrant]
+url = "http://localhost:6334"
+collection = "rdf_chunks"
+
+[rag.milvus]
+addr = "http://localhost:19530"
+collection = "rdf_chunks"
+
+[oxigraph]
+path = "./data/oxigraph"
+
+[security]
+pii_redaction = true
+tenant_isolation = true
+```
+
+---
+
+## 19. Observability & Evaluation
+
+### 19.1 Tracing
+
+Each request should propagate:
+- `request_id` — unique identifier for the request
+- `retrieved_chunk_ids` — IDs of chunks returned by RAG retrieval
+- `sparql_queries` — SPARQL queries executed during the request
+
+Uses `tracing` crate spans and fields, compatible with the existing `tracing-subscriber` setup.
+
+### 19.2 Evaluation Metrics
+
+| Metric | Description |
+|---|---|
+| Precision@K | Fraction of retrieved chunks that are relevant |
+| Faithfulness | Whether the LLM response is faithful to retrieved context |
+| Latency | End-to-end response time |
+
+---
+
+## 20. Performance Targets
+
+| Metric | Target |
+|---|---|
+| Retrieval latency | < 20 ms (in-memory) |
+| Recall@10 | > 0.9 |
+| Cold start (100k chunks) | < 5 sec |
+| Memory | < 2 GB |
+
+---
+
+## 21. Security & Multi-Tenancy
+
+- **Namespace isolation**: per-tenant namespace separation
+- **Graph-level ACL filtering**: restrict query results by named graph access
+- **Redaction before embedding**: PII/sensitive data redacted prior to vectorization
+- **Hash-based deduplication**: avoid redundant chunks via content hashing
+
+---
+
+## 22. Failure Modes
+
+| Failure | Mitigation |
+|---|---|
+| Hallucinations | SPARQL verification against triplestore |
+| Wrong context retrieved | Reranking pass to improve precision |
+| Stale embeddings | Re-index pipeline triggered by data changes |
+| Vector DB outage | Fallback to in-memory vector store |
+
+---
+
+## 23. Project Structure (Extended)
+
+When the RAG and agent capabilities are implemented, the project will be organized as a Cargo workspace with multiple crates:
+
+```
+semantic-code-mcp/
+├── PLAN.md
+├── TASKS.md
+├── SPECIFICATIONS.md
+├── README.md
+├── .gitignore
+│
+└── rust/
+    ├── Cargo.toml                  # Workspace root
+    │
+    ├── crates/
+    │   ├── vector_store/           # VectorStore trait + InMemoryVectorStore
+    │   │   ├── Cargo.toml
+    │   │   └── src/
+    │   │       ├── lib.rs
+    │   │       ├── inmemory.rs
+    │   │       ├── qdrant.rs       # (feature-gated)
+    │   │       └── milvus.rs       # (feature-gated)
+    │   │
+    │   ├── rag_pipeline/           # Embedding, retrieval, reranking, compression
+    │   │   ├── Cargo.toml
+    │   │   └── src/
+    │   │       └── lib.rs
+    │   │
+    │   └── agent_orchestrator/     # Planner, router, AgentTool dispatch
+    │       ├── Cargo.toml
+    │       └── src/
+    │           └── lib.rs
+    │
+    └── src/                        # Existing MCP server binary
+        ├── main.rs
+        ├── store.rs
+        ├── tools/
+        │   ├── mod.rs
+        │   ├── sparql.rs
+        │   ├── rdf.rs
+        │   ├── code.rs
+        │   └── git.rs
+        └── loaders/
+            ├── mod.rs
+            ├── rust.rs
+            ├── typescript.rs
+            └── git.rs
+```
+
+## 24. Roadmap
+
+Future enhancements beyond the current milestones:
+
+- Hybrid lexical + vector retrieval
+- SHACL-aware scoring
+- Multi-vector per RDF node
+- Incremental embeddings
+- WASM reranker
