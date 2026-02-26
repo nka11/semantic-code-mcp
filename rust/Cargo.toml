@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "crates/vector_store"]
+resolver = "2"
+
 [package]
 name = "semantic-code-mcp"
 version = "0.1.0"
