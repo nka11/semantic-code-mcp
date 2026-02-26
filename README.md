@@ -120,6 +120,26 @@ cargo test
 | AST Parsing | syn 2.x |
 | Transport | stdio (JSON-RPC) |
 
+## Roadmap
+
+See [PLAN.md](PLAN.md) for full milestone details and [SPECIFICATIONS.md](SPECIFICATIONS.md) for technical specifications.
+
+| Milestone | Description | Status |
+|---|---|---|
+| M0–M2 | Core server, generic RDF tools, Rust code loader | ✅ Done |
+| M4 | TypeScript code loader | ✅ Done |
+| M3 | Python code loader | Planned |
+| M5 | Testing & documentation | In progress |
+| M6 | Git history loader | Planned |
+| M7 | Advanced features (graph management, store stats) | Planned |
+| M8 | Pluggable vector store (`VectorStore` trait + in-memory backend) | Planned |
+| M9 | RAG pipeline (embedding, retrieval, reranking) | Planned |
+| M10 | Agent orchestrator (planner/router, tool dispatch) | Planned |
+| M11 | External vector DB adapters (Qdrant, Milvus) | Planned |
+| M12 | Observability & production hardening | Planned |
+
+**Future enhancements:** Hybrid lexical + vector retrieval, SHACL-aware scoring, multi-vector per RDF node, incremental embeddings, WASM reranker.
+
 ## License
 
 See [LICENSE](LICENSE) for details.
