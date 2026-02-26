@@ -38,8 +38,8 @@ impl Filter {
             Filter::IriPrefix(prefix) => chunk
                 .iri
                 .as_deref()
-                .map_or(false, |iri| iri.starts_with(prefix.as_str())),
-            Filter::MetadataEq(key, value) => chunk.metadata.get(key).map_or(false, |v| v == value),
+                .is_some_and(|iri| iri.starts_with(prefix.as_str())),
+            Filter::MetadataEq(key, value) => chunk.metadata.get(key).is_some_and(|v| v == value),
         }
     }
 }
