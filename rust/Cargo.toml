@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/vector_store"]
+members = [".", "crates/vector_store", "crates/rag_pipeline"]
 resolver = "2"
 
 [package]
