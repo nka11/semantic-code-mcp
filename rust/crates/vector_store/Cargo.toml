@@ -1,0 +1,29 @@
+[package]
+name = "vector_store"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.76"
+license = "GPL-3.0-only"
+
+[dependencies]
+hnsw_rs = "0.3"
+anndists = "0.1"
+dashmap = "6"
+async-trait = "0.1"
+anyhow = "1"
+tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+
+[features]
+persistence = ["serde", "serde_json"]
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+optional = true
+
+[dependencies.serde_json]
+version = "1"
+optional = true
