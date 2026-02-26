@@ -16,10 +16,7 @@ pub enum ToolInput {
     /// Execute a SPARQL query against the triplestore.
     Sparql { query: String },
     /// Retrieve relevant chunks via the RAG pipeline.
-    Rag {
-        query: String,
-        top_k: Option<usize>,
-    },
+    Rag { query: String, top_k: Option<usize> },
     /// Generate text using an LLM with provided context.
     Codegen { prompt: String, context: String },
 }
