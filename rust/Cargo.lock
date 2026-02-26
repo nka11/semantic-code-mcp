@@ -3,6 +3,22 @@
 version = 3
 
 [[package]]
+name = "agent_orchestrator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "oxigraph",
+ "rag_pipeline",
+ "serde",
+ "serde_json",
+ "sparesults",
+ "tokio",
+ "tracing",
+ "vector_store",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2058,6 +2074,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 name = "semantic-code-mcp"
 version = "0.1.0"
 dependencies = [
+ "agent_orchestrator",
  "git2",
  "ignore",
  "oxc_allocator",
@@ -2067,6 +2084,7 @@ dependencies = [
  "oxigraph",
  "proc-macro2",
  "quote",
+ "rag_pipeline",
  "rmcp",
  "schemars",
  "serde",
@@ -2079,6 +2097,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "vector_store",
 ]
 
 [[package]]
