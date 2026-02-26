@@ -4,15 +4,18 @@ mod loaders;
 mod store;
 mod tools;
 
+use agent_orchestrator::{AgentRouter, CodegenTool, MockLlmClient, RagTool, SparqlTool};
 use loaders::LoaderRegistry;
 use oxigraph::store::Store;
+use rag_pipeline::{MockEmbeddingProvider, RagPipeline};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::Arc;
+use vector_store::inmemory::InMemoryVectorStore;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SparqlQueryParams {
@@ -70,19 +73,41 @@ struct LoadGitHistoryParams {
     branch: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct AgentQueryParams {
+    /// Natural language query or SPARQL query to route through the agent orchestrator.
+    /// SPARQL queries (starting with SELECT, ASK, CONSTRUCT, DESCRIBE, PREFIX) are sent directly to the triplestore.
+    /// Natural language queries are routed to RAG retrieval and/or LLM generation as appropriate.
+    query: String,
+}
+
 #[derive(Clone)]
 pub struct OxigraphServer {
     store: Arc<Store>,
     registry: Arc<LoaderRegistry>,
+    agent_router: Arc<AgentRouter>,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl OxigraphServer {
     pub fn new(store: Store) -> Self {
+        let store = Arc::new(store);
+
+        // Build the agent router with all available tools
+        let mut agent_router = AgentRouter::new();
+        agent_router.register(SparqlTool::new(store.clone()));
+
+        let vector_store = InMemoryVectorStore::new();
+        let embedder = MockEmbeddingProvider::new(1536);
+        let pipeline = Arc::new(RagPipeline::with_defaults(vector_store, embedder));
+        agent_router.register(RagTool::new(pipeline));
+        agent_router.register(CodegenTool::new(MockLlmClient));
+
         Self {
-            store: Arc::new(store),
+            store,
             registry: Arc::new(LoaderRegistry::default()),
+            agent_router: Arc::new(agent_router),
             tool_router: Self::tool_router(),
         }
     }
@@ -208,6 +233,38 @@ impl OxigraphServer {
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
+        description = "Agent orchestrator that routes queries to the appropriate tool (SPARQL, RAG, or code generation). Accepts natural language queries or direct SPARQL queries. SPARQL queries are executed directly against the triplestore. Natural language queries are routed through RAG retrieval for context, then to the LLM for grounded generation. Responses include citations: [iri:...] for RDF IRIs from SPARQL results, [chunk:...] for RAG chunk references. The agent enforces a prompt contract requiring all claims to be grounded in retrieved data."
+    )]
+    async fn agent_query(
+        &self,
+        Parameters(params): Parameters<AgentQueryParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let router = self.agent_router.clone();
+        match router.execute(&params.query).await {
+            Ok(output) => {
+                let mut text = output.content;
+                if !output.citations.is_empty() {
+                    text.push_str("\n\n---\nCitations:\n");
+                    for citation in &output.citations {
+                        match citation {
+                            agent_orchestrator::Citation::Iri(iri) => {
+                                text.push_str(&format!("- [iri:{iri}]\n"));
+                            }
+                            agent_orchestrator::Citation::ChunkId(id) => {
+                                text.push_str(&format!("- [chunk:{id}]\n"));
+                            }
+                        }
+                    }
+                }
+                Ok(CallToolResult::success(vec![Content::text(text)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Agent error: {e}"
+            ))])),
+        }
     }
 }
 

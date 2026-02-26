@@ -30,6 +30,9 @@ oxc_allocator = "0.114"
 oxc_span = "0.114"
 git2 = { version = "0.20", features = ["vendored-openssl"] }
 time = { version = "0.3", features = ["formatting"] }
+agent_orchestrator = { path = "crates/agent_orchestrator" }
+rag_pipeline = { path = "crates/rag_pipeline" }
+vector_store = { path = "crates/vector_store" }
 
 [dev-dependencies]
 tempfile = "3"
