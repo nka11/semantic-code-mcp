@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use vector_store::{Filter, SearchHit, VectorStore};
 
@@ -36,8 +38,8 @@ pub struct RetrievalResult {
 
 /// Orchestrates the RAG pipeline: embed → search → rerank → compress.
 pub struct RagPipeline {
-    store: Box<dyn VectorStore>,
-    embedder: Box<dyn EmbeddingProvider>,
+    store: Arc<dyn VectorStore>,
+    embedder: Arc<dyn EmbeddingProvider>,
     reranker: Box<dyn Reranker>,
     compressor: Box<dyn ContextCompressor>,
 }
@@ -51,8 +53,23 @@ impl RagPipeline {
         compressor: impl ContextCompressor + 'static,
     ) -> Self {
         Self {
-            store: Box::new(store),
-            embedder: Box::new(embedder),
+            store: Arc::new(store),
+            embedder: Arc::new(embedder),
+            reranker: Box::new(reranker),
+            compressor: Box::new(compressor),
+        }
+    }
+
+    /// Create a pipeline from shared Arc instances.
+    pub fn with_shared(
+        store: Arc<dyn VectorStore>,
+        embedder: Arc<dyn EmbeddingProvider>,
+        reranker: impl Reranker + 'static,
+        compressor: impl ContextCompressor + 'static,
+    ) -> Self {
+        Self {
+            store,
+            embedder,
             reranker: Box::new(reranker),
             compressor: Box::new(compressor),
         }
@@ -64,6 +81,14 @@ impl RagPipeline {
         embedder: impl EmbeddingProvider + 'static,
     ) -> Self {
         Self::new(store, embedder, PassThroughReranker, TruncatingCompressor)
+    }
+
+    /// Create a pipeline from shared Arc instances with default reranker and compressor.
+    pub fn with_shared_defaults(
+        store: Arc<dyn VectorStore>,
+        embedder: Arc<dyn EmbeddingProvider>,
+    ) -> Self {
+        Self::with_shared(store, embedder, PassThroughReranker, TruncatingCompressor)
     }
 
     /// Run the full retrieval pipeline: embed query → search → rerank → compress.
