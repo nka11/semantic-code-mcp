@@ -1,4 +1,5 @@
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 /// Async trait for embedding text into dense vectors.
 #[async_trait::async_trait]
@@ -58,6 +59,91 @@ impl EmbeddingProvider for MockEmbeddingProvider {
     }
 }
 
+/// Embedding provider that calls an OpenAI-compatible `/v1/embeddings` endpoint.
+///
+/// Works with OpenAI, Ollama (`http://localhost:11434/v1/embeddings`),
+/// LMStudio (`http://localhost:1234/v1/embeddings`), and other compatible APIs.
+pub struct HttpEmbeddingProvider {
+    client: reqwest::Client,
+    url: String,
+    model: String,
+    api_key: Option<String>,
+    dim: usize,
+}
+
+impl HttpEmbeddingProvider {
+    pub fn new(url: String, model: String, api_key: Option<String>, dim: usize) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            url,
+            model,
+            api_key,
+            dim,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct EmbeddingRequest {
+    model: String,
+    input: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct EmbeddingResponse {
+    data: Vec<EmbeddingData>,
+}
+
+#[derive(Deserialize)]
+struct EmbeddingData {
+    embedding: Vec<f32>,
+}
+
+#[async_trait::async_trait]
+impl EmbeddingProvider for HttpEmbeddingProvider {
+    async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let body = EmbeddingRequest {
+            model: self.model.clone(),
+            input: texts.to_vec(),
+        };
+
+        let mut req = self.client.post(&self.url).json(&body);
+        if let Some(key) = &self.api_key {
+            req = req.bearer_auth(key);
+        }
+
+        let resp = req.send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Embedding API returned {status}: {body}");
+        }
+
+        let parsed: EmbeddingResponse = resp.json().await?;
+
+        // Validate dimensions
+        for (i, d) in parsed.data.iter().enumerate() {
+            if d.embedding.len() != self.dim {
+                anyhow::bail!(
+                    "Embedding {i} has dimension {} but expected {dim}",
+                    d.embedding.len(),
+                    dim = self.dim
+                );
+            }
+        }
+
+        Ok(parsed.data.into_iter().map(|d| d.embedding).collect())
+    }
+
+    fn dimension(&self) -> Option<usize> {
+        Some(self.dim)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +185,40 @@ mod tests {
         // Each should be different
         assert_ne!(vecs[0], vecs[1]);
         assert_ne!(vecs[1], vecs[2]);
+    }
+
+    #[test]
+    fn http_provider_reports_dimension() {
+        let provider = HttpEmbeddingProvider::new(
+            "http://localhost:11434/v1/embeddings".into(),
+            "nomic-embed-text".into(),
+            None,
+            768,
+        );
+        assert_eq!(provider.dimension(), Some(768));
+    }
+
+    #[test]
+    fn http_provider_with_api_key() {
+        let provider = HttpEmbeddingProvider::new(
+            "https://api.openai.com/v1/embeddings".into(),
+            "text-embedding-3-small".into(),
+            Some("sk-test-key".into()),
+            1536,
+        );
+        assert_eq!(provider.dimension(), Some(1536));
+    }
+
+    #[tokio::test]
+    async fn http_provider_empty_batch() {
+        let provider = HttpEmbeddingProvider::new(
+            "http://localhost:99999/v1/embeddings".into(),
+            "test".into(),
+            None,
+            8,
+        );
+        // Empty input should return immediately without HTTP call
+        let result = provider.embed(&[]).await.unwrap();
+        assert!(result.is_empty());
     }
 }
