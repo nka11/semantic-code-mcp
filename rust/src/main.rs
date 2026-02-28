@@ -18,6 +18,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::Arc;
 use vector_store::inmemory::InMemoryVectorStore;
+use vector_store::qdrant::QdrantVectorStore;
 use vector_store::VectorStore;
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -108,8 +109,18 @@ impl OxigraphServer {
     pub fn new(store: Store) -> Self {
         let store = Arc::new(store);
 
-        // Shared vector store
-        let vector_store: Arc<dyn VectorStore> = Arc::new(InMemoryVectorStore::new());
+        // Shared vector store — use Qdrant if QDRANT_URL is set, otherwise in-memory
+        let vector_store: Arc<dyn VectorStore> = if let Ok(url) = std::env::var("QDRANT_URL") {
+            let dim: usize = std::env::var("EMBEDDING_DIM")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1536);
+            tracing::info!(url = %url, dim = dim, "Using Qdrant vector store");
+            Arc::new(QdrantVectorStore::new(url, dim).expect("failed to connect to Qdrant"))
+        } else {
+            tracing::info!("Using in-memory vector store (set QDRANT_URL for Qdrant)");
+            Arc::new(InMemoryVectorStore::new())
+        };
 
         // Select embedder from environment
         let embedder: Arc<dyn EmbeddingProvider> = if let Ok(url) = std::env::var("EMBEDDING_URL") {

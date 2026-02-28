@@ -12,6 +12,7 @@ dashmap = "6"
 async-trait = "0.1"
 anyhow = "1"
 tokio = { version = "1", features = ["rt"] }
+qdrant-client = "1.17"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

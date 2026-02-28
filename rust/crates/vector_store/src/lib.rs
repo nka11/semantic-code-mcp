@@ -1,4 +1,5 @@
 pub mod inmemory;
+pub mod qdrant;
 
 use std::collections::HashMap;
 
