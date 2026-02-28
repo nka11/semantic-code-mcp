@@ -102,9 +102,7 @@ fn extract_docstring(body: &[Stmt]) -> Option<String> {
 
 /// Determine visibility from a Python name convention.
 fn python_visibility(name: &str) -> &'static str {
-    if name.starts_with("__") && !name.ends_with("__") {
-        "private"
-    } else if name.starts_with('_') {
+    if name.starts_with('_') && !(name.starts_with("__") && name.ends_with("__")) {
         "private"
     } else {
         "public"
@@ -267,6 +265,7 @@ struct ParseContext<'a> {
 }
 
 /// Shared logic for extracting function/method quads from either sync or async function defs.
+#[allow(clippy::too_many_arguments)]
 fn emit_function_quads(
     name: &str,
     args: &ast::Arguments,

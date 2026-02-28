@@ -44,6 +44,22 @@ impl GraphIndexer {
         iri_prefix: Option<&str>,
         batch_size: usize,
     ) -> Result<IndexResult> {
+        anyhow::ensure!(batch_size > 0, "batch_size must be nonzero");
+
+        // Validate IRI inputs to prevent SPARQL injection
+        if let Some(g) = graph {
+            anyhow::ensure!(
+                is_safe_iri(g),
+                "Invalid graph URI (must not contain '>', '\"', or '\\'): {g}"
+            );
+        }
+        if let Some(p) = iri_prefix {
+            anyhow::ensure!(
+                is_safe_iri(p),
+                "Invalid IRI prefix (must not contain '>', '\"', or '\\'): {p}"
+            );
+        }
+
         // 1. Query triples from the store
         let triples = self.query_triples(store, graph, iri_prefix)?;
         if triples.is_empty() {
@@ -161,6 +177,12 @@ impl GraphIndexer {
         }
         types
     }
+}
+
+/// Returns `true` if the string is safe to interpolate into a SPARQL IRI or string literal.
+/// Rejects characters that could break out of `<...>` or `"..."` delimiters.
+fn is_safe_iri(s: &str) -> bool {
+    !s.contains('>') && !s.contains('"') && !s.contains('\\') && !s.contains('\n')
 }
 
 /// Convert an Oxigraph term to a string representation.

@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 
+use crate::prompt_contract::assemble_prompt;
 use crate::types::{AgentTool, Citation, ToolInput, ToolOutput};
 
 /// Async trait for LLM text generation.
@@ -44,18 +45,14 @@ impl AgentTool for CodegenTool {
             _ => return Err(anyhow!("CodegenTool expects ToolInput::Codegen")),
         };
 
-        let full_prompt = if context.is_empty() {
-            prompt
-        } else {
-            format!("Context:\n{context}\n\nQuestion: {prompt}")
-        };
+        let full_prompt = assemble_prompt(&prompt, &context, &[]);
 
         let content = self.client.generate(&full_prompt).await?;
 
-        Ok(ToolOutput {
-            content,
-            citations: vec![],
-        })
+        // Extract citations the LLM included in its response
+        let citations = extract_citations_from_text(&content);
+
+        Ok(ToolOutput { content, citations })
     }
 }
 

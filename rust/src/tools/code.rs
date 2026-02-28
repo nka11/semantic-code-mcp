@@ -92,10 +92,8 @@ pub fn load_code(
     }
 
     let quad_count = all_quads.len();
-    for quad in &all_quads {
-        if let Err(e) = store.insert(quad) {
-            return tool_error(format!("Store insert error: {e}"));
-        }
+    if let Err(e) = store.extend(all_quads) {
+        return tool_error(format!("Store insert error: {e}"));
     }
 
     // Build summary

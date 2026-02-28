@@ -5,6 +5,7 @@ use qdrant_client::qdrant::{
     QueryPointsBuilder, UpsertPointsBuilder, VectorParamsBuilder,
 };
 use qdrant_client::Qdrant;
+use tokio::sync::OnceCell;
 
 use crate::{Filter as VsFilter, RagChunk, SearchHit, VectorStore};
 
@@ -14,6 +15,7 @@ const COLLECTION_NAME: &str = "rag_chunks";
 pub struct QdrantVectorStore {
     client: Qdrant,
     dimension: usize,
+    collection_init: OnceCell<()>,
 }
 
 impl QdrantVectorStore {
@@ -24,20 +26,40 @@ impl QdrantVectorStore {
     /// does not already exist.
     pub fn new(url: impl Into<String>, dimension: usize) -> anyhow::Result<Self> {
         let client = Qdrant::from_url(&url.into()).build()?;
-        Ok(Self { client, dimension })
+        Ok(Self {
+            client,
+            dimension,
+            collection_init: OnceCell::new(),
+        })
     }
 
     /// Ensure the collection exists, creating it if necessary.
+    /// Uses `OnceCell` so that concurrent callers serialize safely
+    /// and the creation attempt happens at most once.
     async fn ensure_collection(&self) -> anyhow::Result<()> {
-        if !self.client.collection_exists(COLLECTION_NAME).await? {
-            self.client
-                .create_collection(
-                    CreateCollectionBuilder::new(COLLECTION_NAME).vectors_config(
-                        VectorParamsBuilder::new(self.dimension as u64, Distance::Cosine),
-                    ),
-                )
-                .await?;
-        }
+        self.collection_init
+            .get_or_try_init(|| async {
+                match self
+                    .client
+                    .create_collection(
+                        CreateCollectionBuilder::new(COLLECTION_NAME).vectors_config(
+                            VectorParamsBuilder::new(self.dimension as u64, Distance::Cosine),
+                        ),
+                    )
+                    .await
+                {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        // If the collection already exists, that's fine.
+                        if self.client.collection_exists(COLLECTION_NAME).await? {
+                            Ok(())
+                        } else {
+                            Err(anyhow::anyhow!("Failed to create collection: {e}"))
+                        }
+                    }
+                }
+            })
+            .await?;
         Ok(())
     }
 }
