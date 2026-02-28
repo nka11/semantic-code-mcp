@@ -4,15 +4,22 @@ mod loaders;
 mod store;
 mod tools;
 
+use agent_orchestrator::{AgentRouter, CodegenTool, MockLlmClient, RagTool, SparqlTool};
 use loaders::LoaderRegistry;
 use oxigraph::store::Store;
+use rag_pipeline::{
+    EmbeddingProvider, GraphIndexer, HttpEmbeddingProvider, MockEmbeddingProvider, RagPipeline,
+};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler, ServiceExt};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::Arc;
+use vector_store::inmemory::InMemoryVectorStore;
+use vector_store::qdrant::QdrantVectorStore;
+use vector_store::VectorStore;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SparqlQueryParams {
@@ -61,6 +68,12 @@ struct LoadTsCodeParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct LoadPythonCodeParams {
+    /// Absolute path to a Python file or project directory
+    path: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct LoadGitHistoryParams {
     /// Path to a git repository (must contain a .git directory)
     path: String,
@@ -70,19 +83,92 @@ struct LoadGitHistoryParams {
     branch: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct AgentQueryParams {
+    /// Natural language query or SPARQL query to route through the agent orchestrator.
+    /// SPARQL queries (starting with SELECT, ASK, CONSTRUCT, DESCRIBE, PREFIX) are sent directly to the triplestore.
+    /// Natural language queries are routed to RAG retrieval and/or LLM generation as appropriate.
+    query: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct IndexGraphParams {
+    /// Named graph URI to index. If not set, indexes the default graph.
+    graph: Option<String>,
+    /// Only index subjects with IRIs starting with this prefix.
+    iri_prefix: Option<String>,
+    /// Embedding batch size. Default: 64.
+    batch_size: Option<usize>,
+}
+
 #[derive(Clone)]
 pub struct OxigraphServer {
     store: Arc<Store>,
     registry: Arc<LoaderRegistry>,
+    agent_router: Arc<AgentRouter>,
+    graph_indexer: Arc<GraphIndexer>,
     tool_router: ToolRouter<Self>,
 }
 
 #[tool_router]
 impl OxigraphServer {
     pub fn new(store: Store) -> Self {
+        let store = Arc::new(store);
+
+        // Shared vector store — use Qdrant if QDRANT_URL is set, otherwise in-memory
+        let vector_store: Arc<dyn VectorStore> = if let Ok(url) = std::env::var("QDRANT_URL") {
+            let dim: usize = std::env::var("EMBEDDING_DIM")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1536);
+            tracing::info!(url = %url, dim = dim, "Using Qdrant vector store");
+            Arc::new(QdrantVectorStore::new(url, dim).expect("failed to connect to Qdrant"))
+        } else {
+            tracing::info!("Using in-memory vector store (set QDRANT_URL for Qdrant)");
+            Arc::new(InMemoryVectorStore::new())
+        };
+
+        // Select embedder from environment
+        let embedder: Arc<dyn EmbeddingProvider> = if let Ok(url) = std::env::var("EMBEDDING_URL") {
+            let model = std::env::var("EMBEDDING_MODEL")
+                .unwrap_or_else(|_| "text-embedding-3-small".into());
+            let api_key = std::env::var("EMBEDDING_API_KEY").ok();
+            let dim: usize = std::env::var("EMBEDDING_DIM")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1536);
+            tracing::info!(
+                url = %url,
+                model = %model,
+                dim = dim,
+                "Using HTTP embedding provider"
+            );
+            Arc::new(HttpEmbeddingProvider::new(url, model, api_key, dim))
+        } else {
+            tracing::info!("Using mock embedding provider (set EMBEDDING_URL for real embeddings)");
+            Arc::new(MockEmbeddingProvider::new(1536))
+        };
+
+        // Build RAG pipeline with shared state
+        let pipeline = Arc::new(RagPipeline::with_shared_defaults(
+            vector_store.clone(),
+            embedder.clone(),
+        ));
+
+        // Build graph indexer with same shared state
+        let graph_indexer = Arc::new(GraphIndexer::new(embedder, vector_store));
+
+        // Build the agent router with all available tools
+        let mut agent_router = AgentRouter::new();
+        agent_router.register(SparqlTool::new(store.clone()));
+        agent_router.register(RagTool::new(pipeline));
+        agent_router.register(CodegenTool::new(MockLlmClient));
+
         Self {
-            store: Arc::new(store),
+            store,
             registry: Arc::new(LoaderRegistry::default()),
+            agent_router: Arc::new(agent_router),
+            graph_indexer,
             tool_router: Self::tool_router(),
         }
     }
@@ -191,6 +277,22 @@ impl OxigraphServer {
     }
 
     #[tool(
+        description = "Load Python source code into the RDF store. Parses pyproject.toml for project metadata and .py files for functions, classes, imports, decorators, and type annotations. Produces RDF triples in the code: namespace (https://ds-labs.org/code#). All triples stored in the default graph. After loading, use sparql_query to query. Classes: Project (name, version, language, hasDependency, hasModule), Module (name, filePath, relativePath, hasFunction, hasImport), Function (name, visibility, parameter, returnType, startLine, endLine, definedIn, docstring, decorator, async), Class (name, visibility, hasField, hasFunction, extends, startLine, endLine, definedIn, docstring, decorator), Field (name, fieldType, startLine), Import (importPath, importedSymbol), Dependency (name, version). Entity URIs use relative paths: code:src/main.py, code:src/main.py/MyClass, code:src/main.py/MyClass/my_method."
+    )]
+    async fn load_python_code(
+        &self,
+        Parameters(params): Parameters<LoadPythonCodeParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.store.clone();
+        let registry = self.registry.clone();
+        tokio::task::spawn_blocking(move || {
+            tools::code::load_python_code(&store, &registry, &params.path)
+        })
+        .await
+        .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
         description = "Load git commit history into the RDF store from a git repository. Walks the commit graph and extracts commit metadata (hash, author, committer, date, message, parents) and per-commit file changes (added, modified, deleted, renamed). Produces RDF triples in the code: namespace (https://ds-labs.org/code#). All triples stored in the default graph. After loading, use sparql_query to query. Classes: Commit (commitHash, shortHash, authorName, authorEmail, committerName, committerEmail, commitDate, message, parentCommit, hasChange), FileChange (changeType, filePath, oldFilePath, affectsModule). Commit URIs: code:commit/<short_hash>. FileChange URIs: code:commit/<short_hash>/<relative_path>. When code has been loaded first, FileChanges are automatically linked to Module nodes via affectsModule, and the Project node is linked to commits via hasCommit."
     )]
     async fn load_git_history(
@@ -208,6 +310,65 @@ impl OxigraphServer {
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
+        description = "Index RDF triples from the Oxigraph store into the vector store for RAG retrieval. Pipeline: SPARQL query → canonicalize triples by subject → embed text → upsert vector chunks. Run this after loading code or RDF data to enable semantic search via agent_query. Supports optional named graph and IRI prefix filtering."
+    )]
+    async fn index_graph(
+        &self,
+        Parameters(params): Parameters<IndexGraphParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.store.clone();
+        let indexer = self.graph_indexer.clone();
+        let graph = params.graph;
+        let iri_prefix = params.iri_prefix;
+        let batch_size = params.batch_size.unwrap_or(64);
+
+        match indexer
+            .index(&store, graph.as_deref(), iri_prefix.as_deref(), batch_size)
+            .await
+        {
+            Ok(result) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Indexed {} chunks from {} subjects.",
+                result.chunks_indexed, result.subjects_processed
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Indexing error: {e}"
+            ))])),
+        }
+    }
+
+    #[tool(
+        description = "Agent orchestrator that routes queries to the appropriate tool (SPARQL, RAG, or code generation). Accepts natural language queries or direct SPARQL queries. SPARQL queries are executed directly against the triplestore. Natural language queries are routed through RAG retrieval for context, then to the LLM for grounded generation. Responses include citations: [iri:...] for RDF IRIs from SPARQL results, [chunk:...] for RAG chunk references. The agent enforces a prompt contract requiring all claims to be grounded in retrieved data."
+    )]
+    async fn agent_query(
+        &self,
+        Parameters(params): Parameters<AgentQueryParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let router = self.agent_router.clone();
+        match router.execute(&params.query).await {
+            Ok(output) => {
+                let mut text = output.content;
+                if !output.citations.is_empty() {
+                    text.push_str("\n\n---\nCitations:\n");
+                    for citation in &output.citations {
+                        match citation {
+                            agent_orchestrator::Citation::Iri(iri) => {
+                                text.push_str(&format!("- [iri:{iri}]\n"));
+                            }
+                            agent_orchestrator::Citation::ChunkId(id) => {
+                                text.push_str(&format!("- [chunk:{id}]\n"));
+                            }
+                        }
+                    }
+                }
+                Ok(CallToolResult::success(vec![Content::text(text)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Agent error: {e}"
+            ))])),
+        }
     }
 }
 

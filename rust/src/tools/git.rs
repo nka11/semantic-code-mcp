@@ -26,10 +26,8 @@ pub fn load_git_history(
     };
 
     let quad_count = result.quads.len();
-    for quad in &result.quads {
-        if let Err(e) = store.insert(quad) {
-            return tool_error(format!("Store insert error: {e}"));
-        }
+    if let Err(e) = store.extend(result.quads) {
+        return tool_error(format!("Store insert error: {e}"));
     }
 
     // --- Module linking ---

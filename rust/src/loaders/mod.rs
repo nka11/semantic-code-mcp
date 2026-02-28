@@ -1,4 +1,5 @@
 pub mod git;
+pub mod python;
 pub mod rust;
 pub mod typescript;
 
@@ -184,6 +185,7 @@ impl LoaderRegistry {
 impl Default for LoaderRegistry {
     fn default() -> Self {
         let mut registry = Self::new();
+        registry.register(Box::new(python::PythonLoader));
         registry.register(Box::new(rust::RustLoader));
         registry.register(Box::new(typescript::TypeScriptLoader));
         registry

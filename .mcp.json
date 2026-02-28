@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "semantic-code-mcp": {
-      "command": "cargo",
-      "args": ["run", "--manifest-path", "./rust/Cargo.toml"]
+      "command": "./rust/target/release/semantic-code-mcp",
+      "env": {
+        "OXIGRAPH_STORE_PATH": "/tmp/oxigraph-test-store",
+        "QDRANT_URL": "http://localhost:6333"
+      }
     }
   }
 }
