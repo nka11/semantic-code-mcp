@@ -7,7 +7,9 @@ mod tools;
 use agent_orchestrator::{AgentRouter, CodegenTool, MockLlmClient, RagTool, SparqlTool};
 use loaders::LoaderRegistry;
 use oxigraph::store::Store;
-use rag_pipeline::{MockEmbeddingProvider, RagPipeline};
+use rag_pipeline::{
+    EmbeddingProvider, GraphIndexer, HttpEmbeddingProvider, MockEmbeddingProvider, RagPipeline,
+};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
@@ -16,6 +18,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::sync::Arc;
 use vector_store::inmemory::InMemoryVectorStore;
+use vector_store::VectorStore;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SparqlQueryParams {
@@ -81,11 +84,22 @@ struct AgentQueryParams {
     query: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct IndexGraphParams {
+    /// Named graph URI to index. If not set, indexes the default graph.
+    graph: Option<String>,
+    /// Only index subjects with IRIs starting with this prefix.
+    iri_prefix: Option<String>,
+    /// Embedding batch size. Default: 64.
+    batch_size: Option<usize>,
+}
+
 #[derive(Clone)]
 pub struct OxigraphServer {
     store: Arc<Store>,
     registry: Arc<LoaderRegistry>,
     agent_router: Arc<AgentRouter>,
+    graph_indexer: Arc<GraphIndexer>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -94,13 +108,42 @@ impl OxigraphServer {
     pub fn new(store: Store) -> Self {
         let store = Arc::new(store);
 
+        // Shared vector store
+        let vector_store: Arc<dyn VectorStore> = Arc::new(InMemoryVectorStore::new());
+
+        // Select embedder from environment
+        let embedder: Arc<dyn EmbeddingProvider> = if let Ok(url) = std::env::var("EMBEDDING_URL") {
+            let model = std::env::var("EMBEDDING_MODEL")
+                .unwrap_or_else(|_| "text-embedding-3-small".into());
+            let api_key = std::env::var("EMBEDDING_API_KEY").ok();
+            let dim: usize = std::env::var("EMBEDDING_DIM")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(1536);
+            tracing::info!(
+                url = %url,
+                model = %model,
+                dim = dim,
+                "Using HTTP embedding provider"
+            );
+            Arc::new(HttpEmbeddingProvider::new(url, model, api_key, dim))
+        } else {
+            tracing::info!("Using mock embedding provider (set EMBEDDING_URL for real embeddings)");
+            Arc::new(MockEmbeddingProvider::new(1536))
+        };
+
+        // Build RAG pipeline with shared state
+        let pipeline = Arc::new(RagPipeline::with_shared_defaults(
+            vector_store.clone(),
+            embedder.clone(),
+        ));
+
+        // Build graph indexer with same shared state
+        let graph_indexer = Arc::new(GraphIndexer::new(embedder, vector_store));
+
         // Build the agent router with all available tools
         let mut agent_router = AgentRouter::new();
         agent_router.register(SparqlTool::new(store.clone()));
-
-        let vector_store = InMemoryVectorStore::new();
-        let embedder = MockEmbeddingProvider::new(1536);
-        let pipeline = Arc::new(RagPipeline::with_defaults(vector_store, embedder));
         agent_router.register(RagTool::new(pipeline));
         agent_router.register(CodegenTool::new(MockLlmClient));
 
@@ -108,6 +151,7 @@ impl OxigraphServer {
             store,
             registry: Arc::new(LoaderRegistry::default()),
             agent_router: Arc::new(agent_router),
+            graph_indexer,
             tool_router: Self::tool_router(),
         }
     }
@@ -233,6 +277,33 @@ impl OxigraphServer {
         })
         .await
         .map_err(|e| rmcp::ErrorData::internal_error(format!("Task join error: {e}"), None))
+    }
+
+    #[tool(
+        description = "Index RDF triples from the Oxigraph store into the vector store for RAG retrieval. Pipeline: SPARQL query → canonicalize triples by subject → embed text → upsert vector chunks. Run this after loading code or RDF data to enable semantic search via agent_query. Supports optional named graph and IRI prefix filtering."
+    )]
+    async fn index_graph(
+        &self,
+        Parameters(params): Parameters<IndexGraphParams>,
+    ) -> Result<CallToolResult, rmcp::ErrorData> {
+        let store = self.store.clone();
+        let indexer = self.graph_indexer.clone();
+        let graph = params.graph;
+        let iri_prefix = params.iri_prefix;
+        let batch_size = params.batch_size.unwrap_or(64);
+
+        match indexer
+            .index(&store, graph.as_deref(), iri_prefix.as_deref(), batch_size)
+            .await
+        {
+            Ok(result) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Indexed {} chunks from {} subjects.",
+                result.chunks_indexed, result.subjects_processed
+            ))])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Indexing error: {e}"
+            ))])),
+        }
     }
 
     #[tool(
