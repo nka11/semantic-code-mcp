@@ -35,10 +35,10 @@ Plugin system foundation plus the first code loader.
   - Module hierarchy resolution
 - Manual testing: load a Rust project and query its structure via SPARQL
 
-### M3 — Python Loader
+### M3 — Python Loader ✅
 - Implement Python loader (`load_python_code`):
-  - pyproject.toml / setup.py / requirements.txt parsing
-  - `.py` file AST extraction (modules, functions, classes, decorators, imports, docstrings)
+  - pyproject.toml parsing (project metadata, dependencies)
+  - `.py` file AST extraction via `rustpython-parser` (modules, functions, classes, decorators, imports, type annotations, docstrings, async)
 - Manual testing: load a Python project and query its structure via SPARQL
 
 ### M4 — TypeScript Loader ✅
@@ -47,13 +47,13 @@ Plugin system foundation plus the first code loader.
   - `.ts`/`.tsx`/`.js`/`.jsx` file AST extraction via `oxc_parser` (modules, functions, classes, interfaces, type aliases, enums, imports/exports, JSDoc)
 - Manual testing: load a TypeScript project and query its structure via SPARQL
 
-### M5 — Testing and Documentation
+### M5 — Testing and Documentation ✅
 - Integration tests for generic RDF tools
-- Integration tests for each language loader
+- Integration tests for each language loader (Rust, TypeScript, Python)
 - User-facing README with installation and usage instructions
 - Claude Code MCP configuration examples
 
-### M6 — Git History Loader
+### M6 — Git History Loader ✅
 Load git commit history into the RDF knowledge graph, enabling queries that join code structure with change history.
 
 - Add `git2` crate (libgit2 bindings) for native repository access
@@ -75,7 +75,7 @@ Load git commit history into the RDF knowledge graph, enabling queries that join
 - Bulk loading with progress reporting
 - Additional language loaders (Go, Java, C/C++, etc.)
 
-### M8 — Pluggable Vector Store
+### M8 — Pluggable Vector Store ✅
 Introduce the `VectorStore` trait and in-memory default backend as a separate crate.
 
 - Restructure `rust/` as a Cargo workspace
@@ -83,34 +83,43 @@ Introduce the `VectorStore` trait and in-memory default backend as a separate cr
 - Define `VectorStore` async trait, `RagChunk`, `SearchHit`, `Filter` types
 - Implement `InMemoryVectorStore` using `hnsw_rs` + `dashmap`
 - Unit tests: upsert, delete, search, filtering
-- Optional snapshot persistence
 
-### M9 — RAG Pipeline
+### M9 — RAG Pipeline ✅
 Build the retrieval pipeline connecting embeddings to the vector store.
 
 - Create `crates/rag_pipeline/` crate
-- Implement embedding provider abstraction (API-based, pluggable)
+- Implement embedding provider abstraction (`EmbeddingProvider` trait, `MockEmbeddingProvider`, `HttpEmbeddingProvider`)
 - Implement RDF canonicalization for chunk text generation
 - Implement retrieval: embed query → `VectorStore.search()` → return ranked chunks
-- Optional reranking pass
-- Context compression for LLM prompt fitting
+- Pass-through reranker (extensible via `Reranker` trait)
+- Context compression via `TruncatingCompressor`
 - Integration tests with in-memory vector store
 
-### M10 — Agent Orchestrator
+### M10 — Agent Orchestrator ✅
 Planner/router that dispatches to SPARQL, RAG, and codegen tools.
 
 - Create `crates/agent_orchestrator/` crate
 - Define `AgentTool` trait and `ToolInput` / `ToolOutput` types
 - Implement `SparqlTool`, `RagTool`, `CodegenTool` wrappers
-- Implement planner/router logic
+- Implement planner/router logic (`AgentRouter`)
 - Enforce prompt contract (IRI citation, chunk ID citation, grounding)
-- Wire orchestrator into the MCP server as new tools
+- Wire orchestrator into the MCP server as `agent_query` tool
 - Integration tests with mock LLM
 
-### M11 — External Vector DB Adapters
-Feature-gated adapters for production vector databases.
+### M10.5 — Graph Indexer & Qdrant Backend ✅
+Bridge the triplestore and the vector store; add production-grade vector DB support.
 
-- Implement Qdrant adapter (`qdrant` feature flag)
+- Implement `GraphIndexer` (SPARQL → canonicalize → embed → upsert) in `rag_pipeline`
+- Wire `index_graph` as MCP tool
+- Add `HttpEmbeddingProvider` for OpenAI-compatible embedding endpoints
+- Implement `QdrantVectorStore` in `crates/vector_store/src/qdrant.rs` (gRPC via `qdrant-client`)
+- Auto-select Qdrant when `QDRANT_URL` is set, fall back to in-memory
+- Add `docker-compose.yml` for Qdrant (v1.13.2, REST + gRPC)
+- Setup docs in `docs/qdrant-setup.md`
+
+### M11 — External Vector DB Adapters
+Additional production vector database adapters and configuration.
+
 - Implement Milvus adapter (`milvus` feature flag)
 - TOML-based configuration for backend selection
 - Integration tests with containerized Qdrant/Milvus

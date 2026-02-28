@@ -44,17 +44,17 @@
   - [x] Register `load_rust_code` tool
 - [x] Manual test: load a Rust project and query its structure via SPARQL
 
-## M3 — Python Loader
+## M3 — Python Loader ✅
 
-- [ ] Implement `rust/src/loaders/python.rs` — Python loader:
-  - [ ] pyproject.toml / setup.py / requirements.txt parsing for dependencies
-  - [ ] `.py` file AST extraction (Rust-based parser):
-    - [ ] Modules and packages
-    - [ ] Functions and methods (name, params, decorators, docstrings)
-    - [ ] Classes (name, bases, methods)
-    - [ ] Import statements
-    - [ ] Type annotations
-  - [ ] Register `load_python_code` tool
+- [x] Implement `rust/src/loaders/python.rs` — Python loader:
+  - [x] pyproject.toml parsing for project metadata and dependencies
+  - [x] `.py` file AST extraction via `rustpython-parser`:
+    - [x] Modules and packages
+    - [x] Functions and methods (name, params, decorators, docstrings, async)
+    - [x] Classes (name, bases, methods, fields)
+    - [x] Import statements
+    - [x] Type annotations
+  - [x] Register `load_python_code` tool
 - [ ] Manual test: load a Python project and query its structure via SPARQL
 
 ## M4 — TypeScript Loader ✅
@@ -70,36 +70,36 @@
   - [x] Register `load_ts_code` tool
 - [ ] Manual test: load a TypeScript project and query its structure via SPARQL
 
-## M5 — Testing and Documentation
+## M5 — Testing and Documentation ✅
 
 - [x] Integration tests for generic RDF tools (sparql_query, sparql_update, load_rdf, list_graphs)
 - [x] Integration tests for Rust loader
-- [ ] Integration tests for Python loader
+- [x] Integration tests for Python loader
 - [x] Integration tests for TypeScript loader
 - [x] Write README.md with installation and usage instructions
 - [x] Add Claude Code MCP configuration examples
 
-## M6 — Git History Loader
+## M6 — Git History Loader ✅
 
-- [ ] Add `git2` crate dependency to `rust/Cargo.toml`
-- [ ] Implement `rust/src/loaders/git.rs` — Git history loader:
-  - [ ] Open repository via `git2::Repository::open()`
-  - [ ] Walk commit graph from HEAD (or specified branch/ref)
-  - [ ] Extract commit metadata (hash, author, committer, date, message, parents)
-  - [ ] Extract per-commit file changes via diff-tree (added, modified, deleted, renamed)
-  - [ ] Generate `code:Commit` and `code:FileChange` RDF triples
-  - [ ] Link `code:FileChange` to `code:Module` via `code:affectsModule` (same-graph join)
-  - [ ] Respect `max_commits` limit
-- [ ] Implement `rust/src/tools/git.rs` — `load_git_history` tool:
-  - [ ] Tool parameter schema (path, graph, max_commits, branch)
-  - [ ] Pure sync function taking `&Store`
-  - [ ] Summary output (commit count, file change count)
-- [ ] Register `load_git_history` tool in `main.rs`
-- [ ] Unit tests:
-  - [ ] Test commit metadata extraction with a temp git repo
-  - [ ] Test file change detection (add, modify, delete, rename)
-  - [ ] Test max_commits limiting
-  - [ ] Test module linking via `code:affectsModule`
+- [x] Add `git2` crate dependency to `rust/Cargo.toml`
+- [x] Implement `rust/src/loaders/git.rs` — Git history loader:
+  - [x] Open repository via `git2::Repository::open()`
+  - [x] Walk commit graph from HEAD (or specified branch/ref)
+  - [x] Extract commit metadata (hash, author, committer, date, message, parents)
+  - [x] Extract per-commit file changes via diff-tree (added, modified, deleted, renamed)
+  - [x] Generate `code:Commit` and `code:FileChange` RDF triples
+  - [x] Link `code:FileChange` to `code:Module` via `code:affectsModule` (same-graph join)
+  - [x] Respect `max_commits` limit
+- [x] Implement `rust/src/tools/git.rs` — `load_git_history` tool:
+  - [x] Tool parameter schema (path, max_commits, branch)
+  - [x] Pure sync function taking `&Store`
+  - [x] Summary output (commit count, file change count)
+- [x] Register `load_git_history` tool in `main.rs`
+- [x] Unit tests:
+  - [x] Test commit metadata extraction with a temp git repo
+  - [x] Test file change detection (add, modify, delete, rename)
+  - [x] Test max_commits limiting
+  - [x] Test module linking via `code:affectsModule`
 - [ ] Manual test: load git history and query commits/changes via SPARQL
 
 ## M7 — Advanced Features
@@ -111,63 +111,73 @@
 - [ ] Bulk loading with progress reporting
 - [ ] Additional language loaders (Go, Java, C/C++, etc.)
 
-## M8 — Pluggable Vector Store
+## M8 — Pluggable Vector Store ✅
 
-- [ ] Restructure `rust/` as a Cargo workspace (workspace `Cargo.toml` + binary member)
-- [ ] Create `crates/vector_store/` crate with `Cargo.toml`
-- [ ] Define `VectorStore` async trait in `crates/vector_store/src/lib.rs`
-- [ ] Define `RagChunk`, `SearchHit`, `Filter` types
-- [ ] Implement `InMemoryVectorStore` in `crates/vector_store/src/inmemory.rs`:
-  - [ ] Add `hnsw_rs`, `ndarray`, `dashmap` dependencies
-  - [ ] Implement `upsert` — insert/update chunks in HNSW index + DashMap
-  - [ ] Implement `delete` — remove chunks from index + DashMap
-  - [ ] Implement `search` — ANN query with cosine distance, optional filtering
-- [ ] Unit tests for upsert, delete, search, filtering
-- [ ] Optional: snapshot persistence (serialize index to disk)
+- [x] Restructure `rust/` as a Cargo workspace (workspace `Cargo.toml` + binary member)
+- [x] Create `crates/vector_store/` crate with `Cargo.toml`
+- [x] Define `VectorStore` async trait in `crates/vector_store/src/lib.rs`
+- [x] Define `RagChunk`, `SearchHit`, `Filter` types
+- [x] Implement `InMemoryVectorStore` in `crates/vector_store/src/inmemory.rs`:
+  - [x] Add `hnsw_rs`, `dashmap` dependencies
+  - [x] Implement `upsert` — insert/update chunks in HNSW index + DashMap
+  - [x] Implement `delete` — remove chunks from index + DashMap
+  - [x] Implement `search` — ANN query with cosine distance, optional filtering
+- [x] Unit tests for upsert, delete, search, filtering
 
-## M9 — RAG Pipeline
+## M9 — RAG Pipeline ✅
 
-- [ ] Create `crates/rag_pipeline/` crate with `Cargo.toml`
-- [ ] Define embedding provider trait (pluggable API-based embedding)
-- [ ] Implement RDF canonicalization:
-  - [ ] CURIE expansion to full IRIs
-  - [ ] Deterministic predicate ordering
-  - [ ] Blank node collapsing
-  - [ ] Chunk text generation from RDF triples
-- [ ] Implement retrieval pipeline:
-  - [ ] Embed user query
-  - [ ] Call `VectorStore.search(k, filter)`
-  - [ ] Return ranked `SearchHit` results
-- [ ] Implement optional reranking pass
-- [ ] Implement context compression for LLM prompt fitting
-- [ ] Integration tests with `InMemoryVectorStore`
+- [x] Create `crates/rag_pipeline/` crate with `Cargo.toml`
+- [x] Define embedding provider trait (`EmbeddingProvider`, `MockEmbeddingProvider`, `HttpEmbeddingProvider`)
+- [x] Implement RDF canonicalization:
+  - [x] Deterministic predicate ordering
+  - [x] Chunk text generation from RDF triples
+- [x] Implement retrieval pipeline:
+  - [x] Embed user query
+  - [x] Call `VectorStore.search(k, filter)`
+  - [x] Return ranked `SearchHit` results
+- [x] Implement reranking pass (`Reranker` trait, `PassThroughReranker`)
+- [x] Implement context compression (`ContextCompressor` trait, `TruncatingCompressor`)
+- [x] Integration tests with `InMemoryVectorStore`
 
-## M10 — Agent Orchestrator
+## M10 — Agent Orchestrator ✅
 
-- [ ] Create `crates/agent_orchestrator/` crate with `Cargo.toml`
-- [ ] Define `AgentTool` async trait and `ToolInput` / `ToolOutput` types
-- [ ] Implement `SparqlTool` — wraps existing Oxigraph store
-- [ ] Implement `RagTool` — wraps `rag_pipeline` + `VectorStore`
-- [ ] Implement `CodegenTool` — wraps LLM client for code generation
-- [ ] Implement planner/router:
-  - [ ] Query classification (SPARQL vs RAG vs codegen)
-  - [ ] Multi-step planning
-  - [ ] Result aggregation
-- [ ] Enforce prompt contract:
-  - [ ] IRI citation for semantic answers
-  - [ ] Chunk ID citation for RAG context
-  - [ ] Grounding verification (refuse ungrounded answers)
-- [ ] Wire orchestrator into the MCP server as new tool(s)
-- [ ] Integration tests with mock LLM client
+- [x] Create `crates/agent_orchestrator/` crate with `Cargo.toml`
+- [x] Define `AgentTool` async trait and `ToolInput` / `ToolOutput` types
+- [x] Implement `SparqlTool` — wraps existing Oxigraph store
+- [x] Implement `RagTool` — wraps `rag_pipeline` + `VectorStore`
+- [x] Implement `CodegenTool` — wraps LLM client for code generation
+- [x] Implement planner/router (`AgentRouter`):
+  - [x] Query classification (SPARQL vs RAG vs codegen)
+  - [x] Multi-step planning
+  - [x] Result aggregation
+- [x] Enforce prompt contract:
+  - [x] IRI citation for semantic answers
+  - [x] Chunk ID citation for RAG context
+  - [x] Grounding verification (refuse ungrounded answers)
+- [x] Wire orchestrator into the MCP server as `agent_query` tool
+- [x] Integration tests with mock LLM client
+
+## M10.5 — Graph Indexer & Qdrant Backend ✅
+
+- [x] Refactor `RagPipeline` from `Box` to `Arc` for shared state
+- [x] Add `HttpEmbeddingProvider` for OpenAI-compatible embedding endpoints
+- [x] Implement `GraphIndexer` (SPARQL → canonicalize → embed → upsert) in `rag_pipeline`
+- [x] Wire `index_graph` as MCP tool
+- [x] Implement `QdrantVectorStore` in `crates/vector_store/src/qdrant.rs`:
+  - [x] Add `qdrant-client` dependency
+  - [x] Implement `VectorStore` trait for Qdrant over gRPC
+  - [x] Auto-create collection on first upsert
+  - [x] Client-side post-filtering for IriPrefix
+- [x] Auto-select Qdrant when `QDRANT_URL` is set, fall back to in-memory
+- [x] Add `docker-compose.yml` for Qdrant (v1.13.2, REST + gRPC)
+- [x] Add setup docs in `docs/qdrant-setup.md`
+- [x] Configure `QDRANT_URL` in `.mcp.json`
 
 ## M11 — External Vector DB Adapters
 
-- [ ] Implement Qdrant adapter in `crates/vector_store/src/qdrant.rs`:
-  - [ ] Add `qdrant-client` dependency (feature-gated)
-  - [ ] Implement `VectorStore` trait for Qdrant
-  - [ ] Connection management and error handling
+- [x] ~~Implement Qdrant adapter~~ (done in M10.5)
 - [ ] Implement Milvus adapter in `crates/vector_store/src/milvus.rs`:
-  - [ ] Add Milvus client dependency (feature-gated)
+  - [ ] Add Milvus client dependency
   - [ ] Implement `VectorStore` trait for Milvus
 - [ ] TOML-based backend configuration (`[rag] backend = "qdrant"`)
 - [ ] Implement `VectorBackend` enum and factory function
